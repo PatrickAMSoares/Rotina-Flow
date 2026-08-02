@@ -1,0 +1,1577 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RotinaFlow</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔁</text></svg>">
+
+<!-- Firebase (SDK compat: funciona com <script> simples, sem bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<script>
+/* ── COLE AQUI A CONFIG DO SEU PROJETO ── */
+const FIREBASE_CONFIG={
+  apiKey: "AIzaSyCeis10_6F5osx0jwfRap1lQCLVL0F9odY",
+  authDomain: "rotina-flow.firebaseapp.com",
+  projectId: "rotina-flow",
+  storageBucket: "rotina-flow.firebasestorage.app",
+  messagingSenderId: "863502257687",
+  appId: "1:863502257687:web:5e6d4fae24e56be0f81652"
+};
+firebase.initializeApp(FIREBASE_CONFIG);
+window.fbAuth=firebase.auth();
+window.fbDb=firebase.firestore();
+window.fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){
+  console.warn('persistência de sessão indisponível:',e.code);
+});
+window.fbDb.enablePersistence({synchronizeTabs:true}).catch(function(e){
+  console.warn('persistência offline indisponível:',e.code);
+});
+</script>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={darkMode:'class',theme:{extend:{
+ colors:{bg:'rgb(var(--bg)/<alpha-value>)',surface:'rgb(var(--surface)/<alpha-value>)',
+  surface2:'rgb(var(--surface2)/<alpha-value>)',bd:'rgb(var(--bd)/<alpha-value>)',
+  fg:'rgb(var(--fg)/<alpha-value>)',muted:'rgb(var(--muted)/<alpha-value>)',
+  brand:{50:'#eef6ff',100:'#d9ebff',200:'#bcdcff',300:'#8ec5ff',400:'#5aa4fb',
+         500:'#2f83f7',600:'#1a68e0',700:'#1553b4',800:'#16478f',900:'#163d75'}},
+ boxShadow:{soft:'0 1px 2px rgb(16 24 40/.05),0 8px 24px -10px rgb(16 24 40/.12)',
+  lift:'0 2px 6px rgb(16 24 40/.07),0 18px 40px -14px rgb(16 24 40/.22)'},
+ keyframes:{popIn:{'0%':{opacity:'0',transform:'translateY(6px) scale(.985)'},'100%':{opacity:'1',transform:'none'}},
+  chk:{'0%':{transform:'scale(.5)'},'60%':{transform:'scale(1.2)'},'100%':{transform:'scale(1)'}},
+  fade:{'0%':{opacity:'0'},'100%':{opacity:'1'}}},
+ animation:{popIn:'popIn .22s cubic-bezier(.2,.8,.2,1)',chk:'chk .3s ease-out',fade:'fade .15s ease-out'}
+}}}
+</script>
+
+<style>
+:root{--bg:247 248 250;--surface:255 255 255;--surface2:243 245 249;--bd:227 231 238;--fg:16 24 40;--muted:110 121 140}
+html.dark{--bg:11 13 17;--surface:22 25 31;--surface2:28 32 39;--bd:42 47 56;--fg:236 239 244;--muted:146 156 171}
+body{background:rgb(var(--bg));color:rgb(var(--fg));-webkit-font-smoothing:antialiased;
+ font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+*{border-color:rgb(var(--bd))}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:rgb(var(--bd));border-radius:9px}
+input,select,textarea{color-scheme:light}html.dark input,html.dark select,html.dark textarea{color-scheme:dark}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useMemo,useRef,useCallback,createContext,useContext}=React;
+
+/* ═══ 1. HELPERS ═══ */
+const pad=n=>String(n).padStart(2,'0');
+const dayKey=(d=new Date())=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const parseKey=k=>{const a=k.split('-').map(Number);return new Date(a[0],a[1]-1,a[2]);};
+const sod=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate());
+const addDays=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x;};
+const diffDays=(a,b)=>Math.round((sod(a)-sod(b))/86400000);
+const lastN=(n,f=new Date())=>Array.from({length:n},(_,i)=>dayKey(addDays(f,-(n-1-i))));
+const dim=(y,m)=>new Date(y,m+1,0).getDate();
+const monthRange=(d=new Date())=>[dayKey(new Date(d.getFullYear(),d.getMonth(),1)),dayKey(new Date(d.getFullYear(),d.getMonth()+1,0))];
+const WD=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const WDL=['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+const WDO=[1,2,3,4,5,6,0], BIZ=[1,2,3,4,5];
+const MO=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const MOL=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const short=k=>{const d=parseKey(k);return pad(d.getDate())+'/'+pad(d.getMonth()+1);};
+const longDate=(d=new Date())=>WDL[d.getDay()]+', '+d.getDate()+' de '+MOL[d.getMonth()];
+const hhmm=iso=>{const d=new Date(iso);return pad(d.getHours())+':'+pad(d.getMinutes());};
+const fmtHour=h=>h==null?'—':pad(Math.floor(h%24))+':'+pad(Math.round((h%1)*60)%60);
+const clamp=(v,a=0,b=100)=>Math.max(a,Math.min(b,v));
+const cx=(...a)=>a.filter(Boolean).join(' ');
+const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+const money=v=>(Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const m2=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+function parseMoney(s){if(typeof s==='number')return s;
+ const t=String(s||'').replace(/[^\d,.-]/g,'');if(!t)return 0;
+ return t.indexOf(',')>=0?(parseFloat(t.replace(/\./g,'').replace(',','.'))||0):(parseFloat(t)||0);}
+
+/* ═══ 2. CONSTANTES ═══ */
+const PRIOS=[
+ {value:'low',label:'Prioridade Baixa',dot:'bg-slate-400',badge:'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'},
+ {value:'medium',label:'Prioridade Média',dot:'bg-amber-400',badge:'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'},
+ {value:'high',label:'Prioridade Alta',dot:'bg-rose-500',badge:'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'}];
+const pMeta=p=>PRIOS.find(x=>x.value===p)||PRIOS[0];
+const PW={high:0,medium:1,low:2};
+const COLORS=['#2f83f7','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#0ea5e9','#64748b'];
+const ICONS=['✅','📧','📞','🧾','💧','🏃','🧘','🛏️','🧹','🍽️','📖','💻','🪥','💊','🐕','🌱','🎯','📝'];
+const PICONS=['🧾','💡','💧','🏠','📶','📱','🚗','💳','🏦','🛡️','📚','🎬','🩺','🍽️','🐾','⚡'];
+const CICONS=['💼','🏠','🏋','📚','💰','🚗','🐾','🎨','🧠','🍎','🛒','⚙️'];
+const DEF_SET={theme:'system',notifyPending:false,notifyPriority:false,notifyDailySummary:false,
+ summaryHour:20,notifyPayments:false,payLead:2};
+const XPP={low:8,medium:12,high:20}, PERFECT_XP=60, PAY_XP=10;
+
+/* ═══ 3. FREQUÊNCIA DE TAREFAS ═══ */
+function isDueOn(f,date){const w=date.getDay();
+ if(f.type==='daily')return true;
+ if(f.type==='weekdays')return w>=1&&w<=5;
+ if(f.type==='weekly')return Array.isArray(f.days)&&f.days.indexOf(w)>=0;
+ if(f.type==='everyXDays'){const n=Math.max(1,Math.floor(f.interval||1));
+  const d=diffDays(date,parseKey(f.anchor||dayKey()));return d>=0&&d%n===0;}
+ return false;}
+const isTaskDue=(t,d)=>t.active&&!t.archived&&isDueOn(t.frequency,d);
+function fDays(f){if(!f)return[];
+ if(f.type==='daily')return[0,1,2,3,4,5,6];
+ if(f.type==='weekdays')return[1,2,3,4,5];
+ if(f.type==='weekly')return (f.days||[]).slice().sort((a,b)=>a-b);
+ return[];}
+function daysToFreq(ds){const d=Array.from(new Set(ds)).sort((a,b)=>a-b);
+ if(d.length===7)return{type:'daily'};
+ if(d.length===5&&[1,2,3,4,5].every(x=>d.indexOf(x)>=0))return{type:'weekdays'};
+ return{type:'weekly',days:d};}
+function freqLabel(f){
+ if(f.type==='daily')return 'Todos os dias';
+ if(f.type==='weekdays')return 'Segunda a sexta';
+ if(f.type==='everyXDays')return f.interval===1?'Todos os dias':'A cada '+f.interval+' dias';
+ const d=fDays(f);
+ if(!d.length)return 'Nenhum dia selecionado';
+ if(d.length===7)return 'Todos os dias';
+ if(d.length===2&&d.indexOf(0)>=0&&d.indexOf(6)>=0)return 'Sábado e domingo';
+ if(d.length===1)return 'Apenas '+WDL[d[0]].replace('-feira','');
+ if(d.length>=5)return 'Exceto '+WDO.filter(x=>d.indexOf(x)<0).map(x=>WD[x]).join(' e ');
+ return WDO.filter(x=>d.indexOf(x)>=0).map(x=>WD[x]).join(', ');}
+const freqOk=f=>f.type!=='weekly'||(Array.isArray(f.days)&&f.days.length>0);
+function nextOcc(f,n=3){const o=[];let d=sod(new Date());
+ for(let i=0;i<400&&o.length<n;i++,d=addDays(d,1))if(isDueOn(f,d))o.push(dayKey(d));return o;}
+function runsOn(f,w){if(f.type==='everyXDays'){let d=sod(new Date());
+ for(let i=0;i<60;i++,d=addDays(d,1))if(d.getDay()===w&&isDueOn(f,d))return true;return false;}
+ return fDays(f).indexOf(w)>=0;}
+
+/* ═══ 4. PAGAMENTOS — REGRA DE DIAS ÚTEIS ═══
+   Sábado → antecipa 1 dia (sexta). Domingo → antecipa 2 dias (sexta).
+   A data nominal é preservada como chave do histórico. */
+const isWknd=d=>d.getDay()===0||d.getDay()===6;
+function toBiz(date){const x=new Date(date);while(isWknd(x))x.setDate(x.getDate()-1);return x;}
+const antNote=w=>w===6?'Vencia sábado · antecipado p/ sexta':w===0?'Vencia domingo · antecipado p/ sexta':'';
+function recLabel(p){const r=p.recurrence||{};
+ if(r.type==='monthly')return r.day>=29?'Mensal · dia '+r.day+' (ou último)':'Mensal · dia '+r.day;
+ if(r.type==='weekly')return 'Semanal · '+WDL[r.weekday].replace('-feira','');
+ if(r.type==='yearly')return 'Anual · '+r.day+' de '+MOL[r.month];
+ if(r.type==='once')return 'Única · '+short(r.date);
+ return '—';}
+const recOk=r=>!r?false:r.type==='monthly'?(r.day>=1&&r.day<=31):
+ r.type==='weekly'?BIZ.indexOf(r.weekday)>=0:
+ r.type==='yearly'?(r.month>=0&&r.month<=11&&r.day>=1&&r.day<=31):
+ r.type==='once'?!!r.date:false;
+
+function occFor(p,fromK,toK){const out=[],from=parseKey(fromK),to=parseKey(toK),r=p.recurrence||{};
+ const until=p.until?parseKey(p.until):null, start=p.startDate?parseKey(p.startDate):null;
+ const push=nom=>{
+  if(until&&nom>until)return;
+  if(start&&r.type!=='once'&&nom<start)return;
+  const eff=toBiz(nom);
+  out.push({pid:p.id,key:dayKey(nom),nominal:dayKey(nom),effective:dayKey(eff),
+   nomWd:nom.getDay(),ant:dayKey(eff)!==dayKey(nom)});};
+ if(r.type==='once')push(parseKey(r.date));
+ else if(r.type==='monthly'){
+  const d=new Date(from.getFullYear(),from.getMonth()-1,1), end=new Date(to.getFullYear(),to.getMonth()+2,1);
+  for(;d<end;d.setMonth(d.getMonth()+1))push(new Date(d.getFullYear(),d.getMonth(),Math.min(r.day,dim(d.getFullYear(),d.getMonth()))));}
+ else if(r.type==='weekly'){
+  for(let d=addDays(from,-7);d<=addDays(to,7);d=addDays(d,1))if(d.getDay()===r.weekday)push(new Date(d));}
+ else if(r.type==='yearly'){
+  for(let y=from.getFullYear()-1;y<=to.getFullYear()+1;y++)push(new Date(y,r.month,Math.min(r.day,dim(y,r.month))));}
+ return out.filter(o=>o.effective>=fromK&&o.effective<=toK);}
+
+function buildAgenda(pays,log,fromK,toK){const out=[];
+ (pays||[]).filter(p=>!p.archived&&p.active!==false).forEach(p=>{
+  occFor(p,fromK,toK).forEach(o=>{
+   const rec=(log[p.id]||{})[o.key]||null;
+   out.push(Object.assign({},o,{name:p.name,categoryId:p.categoryId,color:p.color,icon:p.icon,
+    notes:p.notes,autoDebit:!!p.autoDebit,recLabel:recLabel(p),
+    amount:rec&&rec.amount!=null?rec.amount:(p.amount||0),base:p.amount||0,
+    paid:!!(rec&&rec.paidAt),paidAt:rec?rec.paidAt:null,skipped:!!(rec&&rec.skipped)}));});});
+ return out.sort((a,b)=>a.effective.localeCompare(b.effective)||a.name.localeCompare(b.name));}
+const nextEff=p=>occFor(p,dayKey(),dayKey(addDays(new Date(),400)))[0]||null;
+
+/* ═══ 5. XP / CONQUISTAS / CONSISTÊNCIA ═══ */
+const xpFor=l=>Math.round(120*Math.pow(Math.max(0,l-1),1.45));
+function levelFromXp(xp){let l=1;while(l<999&&xpFor(l+1)<=xp)l++;
+ const f=xpFor(l),c=xpFor(l+1);
+ return{level:l,inLvl:xp-f,forNext:c-f,progress:c===f?1:(xp-f)/(c-f)};}
+const ACH=[
+ {id:'f1',n:'Primeiro Passo',d:'Conclua sua primeira tarefa',e:'👟',t:'bronze',c:x=>x.done>=1},
+ {id:'p1',n:'Dia Perfeito',d:'100% das tarefas em um dia',e:'✅',t:'bronze',c:x=>x.r.perfect>=1},
+ {id:'s3',n:'Aquecendo',d:'3 dias perfeitos seguidos',e:'🔥',t:'bronze',c:x=>x.r.longest>=3},
+ {id:'s7',n:'Semana Impecável',d:'7 dias perfeitos seguidos',e:'🗓️',t:'prata',c:x=>x.r.longest>=7},
+ {id:'s30',n:'Mês de Ferro',d:'30 dias perfeitos seguidos',e:'🏆',t:'ouro',c:x=>x.r.longest>=30},
+ {id:'s100',n:'Lenda da Rotina',d:'100 dias perfeitos seguidos',e:'👑',t:'lenda',c:x=>x.r.longest>=100},
+ {id:'d100',n:'Centurião',d:'100 tarefas concluídas',e:'💯',t:'prata',c:x=>x.done>=100},
+ {id:'d1k',n:'Milhar',d:'1.000 tarefas concluídas',e:'🎖️',t:'ouro',c:x=>x.done>=1000},
+ {id:'ea',n:'Madrugador',d:'Horário médio antes das 9h',e:'🌅',t:'prata',c:x=>x.r.has&&(x.r.avgHour==null?99:x.r.avgHour)<9},
+ {id:'c80',n:'Consistente',d:'Índice de consistência ≥ 80',e:'📈',t:'ouro',c:x=>x.r.index>=80},
+ {id:'c95',n:'Metrônomo',d:'Índice de consistência ≥ 95',e:'⏱️',t:'lenda',c:x=>x.r.index>=95},
+ {id:'l10',n:'Nível 10',d:'Alcance o nível 10',e:'⭐',t:'prata',c:x=>x.level>=10},
+ {id:'y1',n:'Contas em Ordem',d:'Registre seu primeiro pagamento',e:'💳',t:'bronze',c:x=>x.paid>=1},
+ {id:'y25',n:'Pagador Pontual',d:'25 pagamentos registrados',e:'🧾',t:'prata',c:x=>x.paid>=25},
+ {id:'y100',n:'Zero Atraso',d:'100 pagamentos registrados',e:'🏦',t:'ouro',c:x=>x.paid>=100}];
+const TIER={bronze:'from-amber-100 to-orange-200 dark:from-amber-950 dark:to-orange-950',
+ prata:'from-slate-100 to-slate-300 dark:from-slate-800 dark:to-slate-700',
+ ouro:'from-yellow-100 to-amber-300 dark:from-yellow-950 dark:to-amber-900',
+ lenda:'from-fuchsia-100 to-violet-300 dark:from-fuchsia-950 dark:to-violet-900'};
+
+const avgPct=ds=>{const v=ds.filter(d=>d.total>0);return v.length?v.reduce((s,d)=>s+d.percent,0)/v.length:0;};
+function regular(ds){const v=ds.filter(d=>d.total>0).map(d=>d.percent);
+ if(v.length<3)return v.length?.5:0;
+ const m=v.reduce((a,b)=>a+b,0)/v.length;
+ const sd=Math.sqrt(v.reduce((s,x)=>s+(x-m)*(x-m),0)/v.length);
+ return Math.max(0,1-sd/45);}
+function buildReport(arr){
+ const map={};arr.forEach(d=>map[d.date]=d);
+ const pick=n=>lastN(n).map(k=>map[k]).filter(Boolean);
+ const d7=pick(7),d30=pick(30),d90=pick(90);
+ const has=arr.some(d=>d.total>0);
+ const keys=Object.keys(map).sort();let longest=0,run=0,perfect=0;
+ keys.forEach(k=>{const d=map[k];
+  if(d.total>0&&d.completed===d.total){run++;perfect++;longest=Math.max(longest,run);}
+  else if(d.total>0)run=0;});
+ let cur=0;const tk=dayKey();
+ for(let i=keys.length-1;i>=0;i--){const k=keys[i],d=map[k];
+  if(d.total===0)continue;
+  if(d.completed===d.total)cur++;else if(k===tk)continue;else break;}
+ longest=Math.max(longest,cur);
+ const a7=avgPct(d7),a30=avgPct(d30),a90=avgPct(d90);
+ const comp=a30/100,reg=regular(d30),sc=Math.min(1,cur/21);
+ const act=d30.filter(d=>d.total>0);
+ const cov=act.length?act.filter(d=>d.completed>0).length/act.length:0;
+ const index=has?Math.round(100*(comp*.5+reg*.2+sc*.15+cov*.15)):0;
+ const agg={};
+ d90.forEach(day=>day.entries.forEach(e=>{
+  const a=agg[e.taskId]||(agg[e.taskId]={id:e.taskId,name:e.name,icon:e.icon,sched:0,done:0,hrs:[]});
+  a.sched++;if(e.done&&e.completedAt){a.done++;const t=new Date(e.completedAt);a.hrs.push(t.getHours()+t.getMinutes()/60);}}));
+ const ins=Object.keys(agg).map(k=>{const t=agg[k];
+  return Object.assign({},t,{rate:t.sched?t.done/t.sched:0,
+   avgHour:t.hrs.length?t.hrs.reduce((a,b)=>a+b,0)/t.hrs.length:null});});
+ const all=ins.reduce((s,t)=>s.concat(t.hrs),[]);
+ return{has,index,cur,longest,perfect,a7:Math.round(a7),a30:Math.round(a30),a90:Math.round(a90),
+  bd:{comp:Math.round(comp*100),reg:Math.round(reg*100),streak:Math.round(sc*100),cov:Math.round(cov*100)},
+  avgHour:all.length?all.reduce((a,b)=>a+b,0)/all.length:null,trend:Math.round(a7-a30),
+  neg:ins.filter(t=>t.sched>=3).sort((a,b)=>a.rate-b.rate).slice(0,5),
+  top:ins.filter(t=>t.sched>=3).sort((a,b)=>b.rate-a.rate).slice(0,5),
+  late:ins.filter(t=>t.avgHour!=null&&t.done>=3).sort((a,b)=>b.avgHour-a.avgHour).slice(0,5)};}
+
+/* ═══ 6. ESTADO ═══ */
+const LS='rotinaflow.v5';
+const lsKey=uid=>LS+(uid?'.'+uid:'');
+const atKey=uid=>lsKey(uid)+'.at';
+const DEF_CATS=[{name:'Trabalho',icon:'💼',color:'#2f83f7'},{name:'Casa',icon:'🏠',color:'#10b981'},
+ {name:'Saúde',icon:'🏋',color:'#ef4444'},{name:'Estudos',icon:'📚',color:'#8b5cf6'},
+ {name:'Financeiro',icon:'💰',color:'#f59e0b'},{name:'Veículo',icon:'🚗',color:'#0ea5e9'}];
+function recalc(d){const total=d.entries.length,c=d.entries.filter(e=>e.done).length;
+ return Object.assign({},d,{total:total,completed:c,percent:total?Math.round(c/total*100):0});}
+function toEntry(t,cats,order){const c=cats.filter(x=>x.id===t.categoryId)[0];
+ return{taskId:t.id,name:t.name,categoryId:t.categoryId,categoryName:c?c.name:'Sem categoria',
+  categoryIcon:c?c.icon:'📌',priority:t.priority,color:t.color,icon:t.icon,
+  frequencyLabel:freqLabel(t.frequency),done:false,completedAt:null,order:order};}
+const initState=()=>({tasks:[],payments:[],payLog:{},
+ categories:DEF_CATS.map((c,i)=>Object.assign({id:uid()},c,{order:i})),days:{},
+ profile:{xp:0,level:1,achievements:[],settings:Object.assign({},DEF_SET),installedAt:dayKey(),lastSeen:null}});
+function ensureDay(st,k){
+ const date=parseKey(k), due=st.tasks.filter(t=>isTaskDue(t,date));
+ if(!st.days[k]){st.days[k]=recalc({date:k,entries:due.map((t,i)=>toEntry(t,st.categories,t.order==null?i:t.order)),
+  createdAt:Date.now(),updatedAt:Date.now()});return;}
+ if(k!==dayKey())return;
+ const cur=st.days[k], ids={};due.forEach(t=>ids[t.id]=1);
+ const have={};cur.entries.forEach(e=>have[e.taskId]=1);
+ const kept=cur.entries.filter(e=>e.done||ids[e.taskId]);
+ const add=due.filter(t=>!have[t.id]).map((t,i)=>toEntry(t,st.categories,kept.length+i));
+ if(add.length||kept.length!==cur.entries.length)
+  st.days[k]=recalc(Object.assign({},cur,{entries:kept.concat(add),updatedAt:Date.now()}));}
+function boot(st){st.payments=st.payments||[];st.payLog=st.payLog||{};
+ const from=st.profile.installedAt||dayKey();
+ lastN(14).filter(k=>k>=from).forEach(k=>ensureDay(st,k));
+ ensureDay(st,dayKey());st.profile.lastSeen=dayKey();return st;}
+function loadState(uid){try{
+  let raw=localStorage.getItem(lsKey(uid));
+  if(!raw&&uid){const legacy=localStorage.getItem(LS);        // migra dados salvos antes do login
+   if(legacy){raw=legacy;localStorage.setItem(lsKey(uid),legacy);}}
+  if(raw){const s=JSON.parse(raw);s.profile.settings=Object.assign({},DEF_SET,s.profile.settings);return boot(s);}}
+ catch(e){console.warn('estado inválido',e);} return boot(initState());}
+const save=(st,uid)=>{try{localStorage.setItem(lsKey(uid),JSON.stringify(st));}catch(e){}};
+
+/* ═══ 6b. NUVEM (Firestore) ═══ */
+const SCHEMA=5;
+const cloudDoc=uid=>window.fbDb.collection('users').doc(uid).collection('app').doc('state');
+const localAt=uid=>Number(localStorage.getItem(atKey(uid))||0);
+const setLocalAt=(uid,v)=>{try{localStorage.setItem(atKey(uid),String(v));}catch(e){}};
+const packState=st=>({schema:SCHEMA,updatedAt:Date.now(),payload:JSON.stringify(st),
+ serverAt:firebase.firestore.FieldValue.serverTimestamp()});
+
+/* ═══ 7. STORE ═══ */
+const Ctx=createContext(null); const useApp=()=>useContext(Ctx);
+function Provider(props){
+ const userId=props.uid;
+ const [st,setSt]=useState(()=>loadState(userId));
+ const [sync,setSync]=useState('idle');
+ const [toast,setToast]=useState(null);
+ const stRef=useRef(st); useEffect(()=>{stRef.current=st;},[st]);
+ const stamp=useRef(localAt(userId)), timer=useRef(null), pend=useRef(null), first=useRef(true);
+
+ /* envia alterações (debounce 800ms) */
+ const push=useCallback(next=>{
+  pend.current=next; setSync('syncing'); clearTimeout(timer.current);
+  timer.current=setTimeout(()=>{
+   const s=pend.current; if(!s)return;
+   const pk=packState(s); stamp.current=pk.updatedAt; setLocalAt(userId,pk.updatedAt);
+   cloudDoc(userId).set(pk,{merge:true}).then(()=>setSync('saved'))
+    .catch(e=>{console.warn('falha ao sincronizar',e);setSync(navigator.onLine?'error':'offline');});
+  },800);},[userId]);
+
+ /* recebe alterações de outros dispositivos */
+ useEffect(()=>{
+  const unsub=cloudDoc(userId).onSnapshot({includeMetadataChanges:true},snap=>{
+   if(!snap.exists){
+    // só sobe o estado local se a ausência foi confirmada pelo servidor;
+    // um snapshot vindo do cache offline não prova que a nuvem está vazia.
+    if(!snap.metadata.fromCache){first.current=false;push(stRef.current);}
+    return;}
+   const d=snap.data()||{};
+   if(!d.payload||!(d.updatedAt>stamp.current)){setSync('saved');return;}
+   let rs=null; try{rs=JSON.parse(d.payload);}catch(e){}
+   if(!rs||!rs.profile)return;
+   rs.profile.settings=Object.assign({},DEF_SET,rs.profile.settings);
+   const merged=boot(rs);
+   stamp.current=d.updatedAt; setLocalAt(userId,d.updatedAt);
+   save(merged,userId); setSt(merged); setSync('saved');
+   if(!first.current)setToast('☁️ Dados atualizados de outro dispositivo');
+   first.current=false;
+  },e=>{console.warn(e);setSync(navigator.onLine?'error':'offline');});
+  return()=>{unsub();clearTimeout(timer.current);};},[userId,push]);
+
+ useEffect(()=>{const on=()=>setSync(s=>s==='offline'?'syncing':s), off=()=>setSync('offline');
+  if(!navigator.onLine)setSync('offline');
+  window.addEventListener('online',on);window.addEventListener('offline',off);
+  return()=>{window.removeEventListener('online',on);window.removeEventListener('offline',off);};},[]);
+
+ const logout=useCallback(()=>{clearTimeout(timer.current);
+  const s=pend.current||stRef.current;
+  cloudDoc(userId).set(packState(s),{merge:true}).catch(()=>{}).then(()=>window.fbAuth.signOut());},[userId]);
+
+ const upd=useCallback(fn=>setSt(prev=>{
+  const n=JSON.parse(JSON.stringify(prev));fn(n);
+  const keys=Object.keys(n.days), arr=keys.map(k=>n.days[k]);
+  const rep=buildReport(arr);
+  const done=arr.reduce((s,d)=>s+d.completed,0);
+  let paid=0;Object.keys(n.payLog||{}).forEach(p=>{const m=n.payLog[p];
+   Object.keys(m).forEach(k=>{if(m[k].paidAt)paid++;});});
+  n.profile.level=levelFromXp(n.profile.xp).level;
+  const ctx={r:rep,done:done,paid:paid,level:n.profile.level};
+  const novos=ACH.filter(a=>a.c(ctx)).map(a=>a.id).filter(id=>n.profile.achievements.indexOf(id)<0);
+  if(novos.length){n.profile.achievements=n.profile.achievements.concat(novos);
+   n.profile.xp+=novos.length*100;n.profile.level=levelFromXp(n.profile.xp).level;
+   const a=ACH.filter(x=>x.id===novos[0])[0];
+   setTimeout(()=>setToast(a.e+' Conquista: '+a.n+' (+100 XP)'),60);}
+  save(n,userId);push(n);return n;}),[userId,push]);
+
+ useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(null),4200);return()=>clearTimeout(t);},[toast]);
+ useEffect(()=>{const id=setInterval(()=>{
+  if(!st.days[dayKey()])upd(n=>{ensureDay(n,dayKey());n.profile.lastSeen=dayKey();});},60000);
+  return()=>clearInterval(id);},[st.days,upd]);
+
+ const api=useMemo(()=>({
+  toggleEntry(date,taskId){upd(n=>{const d=n.days[date];if(!d)return;
+   const was=d.total>0&&d.completed===d.total;
+   const e=d.entries.filter(x=>x.taskId===taskId)[0];if(!e)return;
+   e.done=!e.done;e.completedAt=e.done?new Date().toISOString():null;
+   n.days[date]=recalc(Object.assign({},d,{updatedAt:Date.now()}));
+   const now=n.days[date].total>0&&n.days[date].completed===n.days[date].total;
+   let x=(e.done?1:-1)*XPP[e.priority];
+   if(!was&&now)x+=PERFECT_XP; if(was&&!now)x-=PERFECT_XP;
+   n.profile.xp=Math.max(0,n.profile.xp+x);});},
+  saveTask(d){upd(n=>{if(d.id){const i=n.tasks.map(t=>t.id).indexOf(d.id);
+    if(i>=0)n.tasks[i]=Object.assign({},n.tasks[i],d,{updatedAt:Date.now()});}
+   else n.tasks.push(Object.assign({},d,{id:uid(),order:n.tasks.length,archived:false,createdAt:Date.now()}));
+   ensureDay(n,dayKey());});},
+  delTask(id){upd(n=>{n.tasks=n.tasks.filter(t=>t.id!==id);ensureDay(n,dayKey());});},
+  archTask(id,v){upd(n=>{const t=n.tasks.filter(x=>x.id===id)[0];if(t){t.archived=v;t.active=!v;}ensureDay(n,dayKey());});},
+  dupTask(id){upd(n=>{const t=n.tasks.filter(x=>x.id===id)[0];if(!t)return;
+   n.tasks.push(Object.assign({},t,{id:uid(),name:t.name+' (cópia)',order:n.tasks.length,createdAt:Date.now()}));
+   ensureDay(n,dayKey());});},
+  togTask(id){upd(n=>{const t=n.tasks.filter(x=>x.id===id)[0];if(t)t.active=!t.active;ensureDay(n,dayKey());});},
+  setDays(id,ds){upd(n=>{const t=n.tasks.filter(x=>x.id===id)[0];
+   if(t&&ds.length){t.frequency=daysToFreq(ds);t.updatedAt=Date.now();}ensureDay(n,dayKey());});},
+  savePay(d){upd(n=>{n.payments=n.payments||[];
+   if(d.id){const i=n.payments.map(p=>p.id).indexOf(d.id);
+    if(i>=0)n.payments[i]=Object.assign({},n.payments[i],d,{updatedAt:Date.now()});}
+   else n.payments.push(Object.assign({},d,{id:uid(),archived:false,createdAt:Date.now()}));});},
+  delPay(id){upd(n=>{n.payments=n.payments.filter(p=>p.id!==id);delete n.payLog[id];});},
+  archPay(id,v){upd(n=>{const p=n.payments.filter(x=>x.id===id)[0];if(p){p.archived=v;p.active=!v;}});},
+  dupPay(id){upd(n=>{const p=n.payments.filter(x=>x.id===id)[0];if(!p)return;
+   n.payments.push(Object.assign({},p,{id:uid(),name:p.name+' (cópia)',createdAt:Date.now()}));});},
+  togPay(id){upd(n=>{const p=n.payments.filter(x=>x.id===id)[0];if(p)p.active=p.active===false;});},
+  markPaid(pid,key,amount,dk){upd(n=>{n.payLog[pid]=n.payLog[pid]||{};
+   const had=!!(n.payLog[pid][key]&&n.payLog[pid][key].paidAt);
+   let iso;
+   if(dk&&dk!==dayKey()){const d=parseKey(dk);iso=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12,0).toISOString();}
+   else iso=new Date().toISOString();
+   n.payLog[pid][key]={paidAt:iso,amount:Number(amount)||0};
+   if(!had)n.profile.xp+=PAY_XP;});},
+  unmark(pid,key){upd(n=>{const r=(n.payLog[pid]||{})[key];if(!r)return;
+   if(r.paidAt)n.profile.xp=Math.max(0,n.profile.xp-PAY_XP);delete n.payLog[pid][key];});},
+  skipOcc(pid,key,v){upd(n=>{n.payLog[pid]=n.payLog[pid]||{};
+   if(v===false)delete n.payLog[pid][key];
+   else n.payLog[pid][key]={skipped:true,at:new Date().toISOString()};});},
+  saveCat(c){upd(n=>{if(c.id){const i=n.categories.map(x=>x.id).indexOf(c.id);
+    if(i>=0)n.categories[i]=Object.assign({},n.categories[i],c);}
+   else n.categories.push(Object.assign({},c,{id:uid(),order:n.categories.length}));});},
+  delCat(id){upd(n=>{n.categories=n.categories.filter(c=>c.id!==id);
+   n.tasks.forEach(t=>{if(t.categoryId===id)t.categoryId='';});
+   (n.payments||[]).forEach(p=>{if(p.categoryId===id)p.categoryId='';});});},
+  setSet(patch){upd(n=>{n.profile.settings=Object.assign({},n.profile.settings,patch);});},
+  notify:setToast}),[upd]);
+
+ const days=useMemo(()=>Object.keys(st.days).sort().map(k=>st.days[k]),[st.days]);
+ const report=useMemo(()=>buildReport(days),[days]);
+ const today=st.days[dayKey()]||null;
+ const agenda=useMemo(()=>{const now=new Date();
+  return buildAgenda(st.payments,st.payLog,
+   dayKey(new Date(now.getFullYear(),now.getMonth()-3,1)),
+   dayKey(new Date(now.getFullYear(),now.getMonth()+4,0)));},[st.payments,st.payLog]);
+ const pay=useMemo(()=>{
+  const t=dayKey(),in7=dayKey(addDays(new Date(),7));
+  const pd0=agenda.filter(o=>!o.paid&&!o.skipped);
+  const over=pd0.filter(o=>o.effective<t), tod=pd0.filter(o=>o.effective===t);
+  const n7=pd0.filter(o=>o.effective>t&&o.effective<=in7);
+  const mr=monthRange(), mo=agenda.filter(o=>o.effective>=mr[0]&&o.effective<=mr[1]&&!o.skipped);
+  const tot=mo.reduce((s,o)=>s+o.amount,0), pdz=mo.filter(o=>o.paid).reduce((s,o)=>s+o.amount,0);
+  const sum=a=>a.reduce((s,o)=>s+o.amount,0);
+  return{over:over,today:tod,n7:n7,overSum:sum(over),todaySum:sum(tod),n7Sum:sum(n7),
+   monthTotal:tot,monthPaid:pdz,monthPct:tot?Math.round(pdz/tot*100):0,
+   next:pd0.filter(o=>o.effective>=t)[0]||null};},[agenda]);
+
+ return <Ctx.Provider value={Object.assign({st:st,days:days,report:report,today:today,
+  agenda:agenda,pay:pay,toast:toast,sync:sync,uid:userId,logout:logout},api)}>
+  {props.children}</Ctx.Provider>;}
+
+
+/* ═══ 8. UI ═══ */
+const Card=p=><div className={cx('bg-surface border rounded-2xl shadow-soft p-5',p.className)} style={p.style}>{p.children}</div>;
+const VAR={primary:'bg-brand-600 text-white hover:bg-brand-700 shadow-soft',ghost:'hover:bg-surface2 text-fg',
+ outline:'border bg-surface hover:bg-surface2',danger:'bg-rose-600 text-white hover:bg-rose-700',
+ soft:'bg-surface2 text-fg hover:bg-bd/60',ok:'bg-emerald-600 text-white hover:bg-emerald-700'};
+const SZ={xs:'h-7 px-2 text-[11px]',sm:'h-8 px-3 text-xs',md:'h-10 px-4 text-sm',lg:'h-11 px-5 text-sm',icon:'h-9 w-9'};
+function Button(p){const {variant='primary',size='md',className,...r}=p;
+ return <button className={cx('inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all',
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:opacity-50 active:scale-[.98]',
+  SZ[size],VAR[variant],className)} {...r}/>;}
+const F='w-full rounded-xl border bg-surface px-3 text-sm placeholder:text-muted focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/25';
+const Input=p=><input {...p} className={cx(F,'h-10',p.className)}/>;
+const Select=p=><select {...p} className={cx(F,'h-10',p.className)}/>;
+const Area=p=><textarea {...p} className={cx(F,'py-2',p.className)}/>;
+const Badge=p=><span className={cx('inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-medium',p.className)} title={p.title}>{p.children}</span>;
+const Lab=p=><span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted">{p.children}</span>;
+function Progress(p){const v=clamp(p.value||0);
+ if(p.blocks){const f=Math.round(v/10);
+  return <div className={cx('flex gap-1',p.className)}>{Array.from({length:10},(_,i)=>
+   <span key={i} className={cx('h-2.5 flex-1 rounded-sm transition-colors',i<f?(p.barClass||'bg-brand-500'):'bg-bd')}/>)}</div>;}
+ return <div className={cx('h-2.5 w-full overflow-hidden rounded-full bg-bd',p.className)}>
+  <div className={cx('h-full rounded-full transition-all duration-500',p.barClass||'bg-brand-500')} style={{width:v+'%'}}/></div>;}
+function Switch(p){return <button type="button" role="switch" aria-checked={p.checked}
+ onClick={()=>p.onChange(!p.checked)} className="flex items-center gap-3 text-left text-sm">
+ <span className={cx('relative h-6 w-11 shrink-0 rounded-full transition-colors',p.checked?'bg-brand-600':'bg-bd')}>
+  <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all',p.checked?'left-[22px]':'left-0.5')}/>
+ </span>{p.label}</button>;}
+function Modal(p){
+ useEffect(()=>{if(!p.open)return;const h=e=>{if(e.key==='Escape')p.onClose();};
+  document.addEventListener('keydown',h);document.body.style.overflow='hidden';
+  return()=>{document.removeEventListener('keydown',h);document.body.style.overflow='';};},[p.open]);
+ if(!p.open)return null;
+ return <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4 animate-fade">
+  <div className="absolute inset-0 bg-black/50" onClick={p.onClose}/>
+  <div className={cx('relative w-full overflow-hidden rounded-t-3xl border bg-surface shadow-lift sm:rounded-3xl animate-popIn',p.wide?'max-w-3xl':'max-w-lg')}>
+   <div className="flex items-center justify-between border-b px-5 py-4">
+    <h3 className="font-semibold">{p.title}</h3>
+    <Button variant="ghost" size="icon" onClick={p.onClose}>✕</Button></div>
+   <div className="max-h-[76vh] overflow-y-auto p-5">{p.children}</div></div></div>;}
+const Empty=p=><div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed py-14 text-center">
+ <div className="grid h-12 w-12 place-items-center rounded-2xl bg-surface2 text-2xl">{p.icon}</div>
+ <div><p className="font-semibold">{p.title}</p>{p.desc&&<p className="mx-auto mt-1 max-w-sm text-sm text-muted">{p.desc}</p>}</div>
+ {p.action}</div>;
+const Stat=p=><Card className="p-4"><div className="flex items-center gap-2 text-xs font-medium text-muted">
+ <span className="text-base">{p.icon}</span>{p.label}</div>
+ <p className={cx('mt-2 text-2xl font-bold tabular-nums',p.tone)}>{p.value}</p>
+ {p.hint&&<p className="mt-0.5 text-xs text-muted">{p.hint}</p>}</Card>;
+
+/* ═══ 9. GRÁFICOS ═══ */
+function useW(){const ref=useRef(null),[w,setW]=useState(640);
+ useEffect(()=>{if(!ref.current)return;
+  const ro=new ResizeObserver(e=>setW(e[0].contentRect.width));ro.observe(ref.current);
+  return()=>ro.disconnect();},[]);return[ref,w];}
+function Bars(p){const [ref,w]=useW();const h=p.height||200,pl=38,pb=22,pt=8;
+ const iw=Math.max(60,w-pl-8),ih=h-pb-pt,bw=p.data.length?iw/p.data.length:0;
+ const top=Math.max(1,p.max||100),cur=p.money;
+ return <div ref={ref} className="w-full"><svg width="100%" height={h}>
+  {[0,.25,.5,.75,1].map(g=>{const y=pt+ih-g*ih;return <g key={g}>
+   <line x1={pl} x2={pl+iw} y1={y} y2={y} stroke="rgb(var(--bd))" strokeDasharray="3 3"/>
+   <text x={pl-6} y={y+3} textAnchor="end" fontSize="9" fill="rgb(var(--muted))">{Math.round(g*top)}</text></g>;})}
+  {p.data.map((d,i)=>{const bh=(Math.min(d.value,top)/top)*ih,x=pl+i*bw+bw*.18,bwid=Math.max(2,bw*.64);
+   return <g key={i}>
+    <rect x={x} y={pt+ih-bh} width={bwid} height={Math.max(1,bh)} rx={Math.min(5,bwid/2)} fill={p.color||'#2f83f7'} opacity=".92">
+     <title>{d.label+': '+(cur?money(d.value):d.value+'%')}</title></rect>
+    {(p.data.length<=14||i%2===0)&&<text x={pl+i*bw+bw/2} y={h-6} textAnchor="middle" fontSize="10" fill="rgb(var(--muted))">{d.label}</text>}
+   </g>;})}</svg></div>;}
+function Line(p){const [ref,w]=useW();const h=p.height||200,pl=34,pb=22,pt=8;
+ const iw=Math.max(60,w-pl-8),ih=h-pb-pt;
+ const X=i=>pl+(p.data.length>1?i*(iw/(p.data.length-1)):iw/2);
+ const Y=v=>pt+ih-(clamp(v)/100)*ih;
+ const line=p.data.map((d,i)=>(i?'L':'M')+X(i)+','+Y(d.value)).join(' ');
+ return <div ref={ref} className="w-full"><svg width="100%" height={h}>
+  <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0%" stopColor={p.color||'#10b981'} stopOpacity=".28"/>
+   <stop offset="100%" stopColor={p.color||'#10b981'} stopOpacity="0"/></linearGradient></defs>
+  {[0,50,100].map(g=>{const y=Y(g);return <g key={g}>
+   <line x1={pl} x2={pl+iw} y1={y} y2={y} stroke="rgb(var(--bd))" strokeDasharray="3 3"/>
+   <text x={pl-6} y={y+3} textAnchor="end" fontSize="10" fill="rgb(var(--muted))">{g}</text></g>;})}
+  {p.data.length>0&&<path d={line+' L'+X(p.data.length-1)+','+(pt+ih)+' L'+X(0)+','+(pt+ih)+' Z'} fill="url(#g1)"/>}
+  <path d={line} fill="none" stroke={p.color||'#10b981'} strokeWidth="2.4" strokeLinejoin="round"/>
+  {p.data.map((d,i)=><circle key={i} cx={X(i)} cy={Y(d.value)} r="7" fill="transparent"><title>{d.label+': '+d.value+'%'}</title></circle>)}
+  {p.data.map((d,i)=>i%Math.ceil(p.data.length/6)===0?
+   <text key={'t'+i} x={X(i)} y={h-6} textAnchor="middle" fontSize="10" fill="rgb(var(--muted))">{d.label}</text>:null)}
+ </svg></div>;}
+const HL=['bg-bd','bg-emerald-200 dark:bg-emerald-900','bg-emerald-300 dark:bg-emerald-700','bg-emerald-400 dark:bg-emerald-600','bg-emerald-500 dark:bg-emerald-400'];
+const hlv=p=>p==null?0:p>=100?4:p>=75?3:p>=40?2:p>0?1:0;
+function Heat(p){
+ const map=useMemo(()=>{const m={};p.days.forEach(d=>m[d.date]=d);return m;},[p.days]);
+ const [tip,setTip]=useState(null), tk=dayKey(), weeks=p.weeks||26;
+ const first=addDays(new Date(),-(weeks*7-1)), start=addDays(first,-first.getDay());
+ const cols=Array.from({length:weeks+1},(_,w)=>Array.from({length:7},(_,d)=>dayKey(addDays(start,w*7+d))));
+ return <div><div className="overflow-x-auto pb-1"><div className="flex gap-[3px]">
+  <div className="mr-1 flex flex-col gap-[3px] pt-[15px] text-[9px] text-muted">
+   {['','S','','Q','','S',''].map((l,i)=><span key={i} className="h-[11px] leading-[11px]">{l}</span>)}</div>
+  {cols.map((wk,wi)=><div key={wi} className="flex flex-col gap-[3px]">
+   <span className="h-3 text-[9px] text-muted">{parseKey(wk[0]).getDate()<=7?MO[parseKey(wk[0]).getMonth()]:''}</span>
+   {wk.map(k=>{const r=map[k],fut=k>tk;
+    return <span key={k} onMouseEnter={()=>setTip(r&&r.total?short(k)+' · '+r.completed+'/'+r.total+' ('+r.percent+'%)':short(k)+' · sem registro')}
+     onMouseLeave={()=>setTip(null)}
+     className={cx('h-[11px] w-[11px] rounded-[3px] transition-transform hover:scale-125',
+      fut?'bg-bd opacity-25':HL[hlv(r&&r.total?r.percent:null)],k===tk&&'ring-1 ring-brand-500')}/>;})}
+  </div>)}</div></div>
+  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+   <span className="tabular-nums">{tip||'Passe o cursor sobre um dia'}</span>
+   <span className="flex items-center gap-1">Menos {HL.map((c,i)=><span key={i} className={cx('h-[11px] w-[11px] rounded-[3px]',c)}/>)} Mais</span>
+  </div></div>;}
+
+/* ═══ 10. TAREFAS ═══ */
+function TaskCard(p){const e=p.entry,pm=pMeta(e.priority);
+ return <div className={cx('flex items-start gap-3 rounded-2xl border p-4 transition-all animate-popIn',
+  e.done?'bg-surface2/60 opacity-70':'bg-surface shadow-soft hover:shadow-lift hover:-translate-y-px')}>
+  <button onClick={p.onToggle} aria-label={(e.done?'Desmarcar ':'Concluir ')+e.name}
+   className={cx('mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2 transition-all',
+    e.done?'border-emerald-500 bg-emerald-500 text-white':'hover:border-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/25')}>
+   {e.done&&<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="3.2"
+    strokeLinecap="round" strokeLinejoin="round" className="animate-chk"><path d="M20 6L9 17l-5-5"/></svg>}</button>
+  <div className="min-w-0 flex-1">
+   <div className="flex items-center gap-2"><span>{e.icon}</span>
+    <p className={cx('truncate font-semibold',e.done&&'text-muted line-through')}>{e.name}</p></div>
+   <div className="mt-2 flex flex-wrap gap-1.5">
+    <Badge className="bg-surface2 text-muted">{e.categoryIcon+' '+e.categoryName}</Badge>
+    <Badge className="bg-surface2 text-muted">{e.frequencyLabel}</Badge>
+    <Badge className={pm.badge}><span className={cx('h-1.5 w-1.5 rounded-full',pm.dot)}/>{pm.label}</Badge></div>
+   {e.done&&e.completedAt&&<p className="mt-2 text-xs font-medium text-emerald-600">🕘 Concluído às {hhmm(e.completedAt)}</p>}
+  </div><span className="h-10 w-1 shrink-0 rounded-full" style={{background:e.color}}/></div>;}
+
+const SHORTCUTS=[{l:'Todos os dias',d:[0,1,2,3,4,5,6]},{l:'Seg a sex',d:[1,2,3,4,5]},
+ {l:'Fim de semana',d:[0,6]},{l:'Seg/Qua/Sex',d:[1,3,5]},{l:'Ter/Qui',d:[2,4]}];
+const same=(a,b)=>a.length===b.length&&a.every(x=>b.indexOf(x)>=0);
+function WeekDots(p){if(p.freq.type==='everyXDays')
+  return <Badge className="bg-surface2 text-muted">⟳ {p.freq.interval}d</Badge>;
+ const ds=fDays(p.freq);
+ return <span className="flex gap-[3px]">{WDO.map(d=>
+  <span key={d} title={WDL[d]} className={cx('grid h-[17px] w-[17px] place-items-center rounded-[5px] text-[9px] font-bold',
+   ds.indexOf(d)>=0?'bg-brand-600 text-white':'bg-surface2 text-muted/70')}>{WD[d][0]}</span>)}</span>;}
+
+function FreqPicker(p){
+ const v=p.value, days=fDays(v);
+ const [mode,setMode]=useState(v.type==='everyXDays'?'int':'days');
+ const mem=useRef(days.length?days:[1,2,3,4,5]);
+ useEffect(()=>{if(v.type!=='everyXDays'&&fDays(v).length)mem.current=fDays(v);},[v]);
+ const setD=ds=>p.onChange(daysToFreq(ds));
+ const tog=d=>setD(days.indexOf(d)>=0?days.filter(x=>x!==d):days.concat([d]));
+ const nx=nextOcc(v,3);
+ return <div className="space-y-3 rounded-2xl border bg-surface2/40 p-3">
+  <div className="flex rounded-xl bg-surface2 p-1">
+   {[['days','📅 Dias da semana'],['int','⟳ A cada X dias']].map(a=>
+    <button key={a[0]} type="button" onClick={()=>{setMode(a[0]);
+      if(a[0]==='int')p.onChange({type:'everyXDays',interval:v.interval||3,anchor:v.anchor||dayKey()});
+      else setD(mem.current);}}
+     className={cx('flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold',mode===a[0]?'bg-surface shadow-soft':'text-muted')}>{a[1]}</button>)}
+  </div>
+  {mode==='days'&&<div className="space-y-2">
+   <div className="grid grid-cols-7 gap-1.5">{WDO.map(d=>{const on=days.indexOf(d)>=0;
+    return <button key={d} type="button" onClick={()=>tog(d)} title={WDL[d]}
+     className={cx('flex h-16 flex-col items-center justify-center gap-1 rounded-xl border text-[11px] font-semibold transition-all active:scale-95',
+      on?'border-brand-600 bg-brand-600 text-white shadow-soft':'bg-surface hover:border-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20')}>
+     <span className="text-base leading-none">{WD[d][0]}</span><span className="leading-none opacity-80">{WD[d]}</span>
+     {on&&<span className="text-[9px] leading-none">✓</span>}</button>;})}</div>
+   <div className="flex flex-wrap gap-1.5">{SHORTCUTS.map(s=>
+    <button key={s.l} type="button" onClick={()=>setD(s.d)}
+     className={cx('rounded-lg border px-2.5 py-1 text-[11px] font-medium',
+      same(days,s.d)?'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300':'bg-surface text-muted hover:bg-surface2')}>{s.l}</button>)}
+    <button type="button" onClick={()=>setD([])} className="ml-auto px-2 text-[11px] text-muted hover:text-rose-600">Limpar</button></div>
+  </div>}
+  {mode==='int'&&v.type==='everyXDays'&&<div className="space-y-2">
+   <div className="flex flex-wrap items-center gap-2 text-sm"><span className="text-muted">Repetir a cada</span>
+    <Button type="button" variant="outline" size="icon" onClick={()=>p.onChange(Object.assign({},v,{interval:Math.max(1,v.interval-1)}))}>−</Button>
+    <Input type="number" min="1" max="365" className="w-16 text-center" value={v.interval}
+     onChange={e=>p.onChange(Object.assign({},v,{interval:clamp(+e.target.value||1,1,365)}))}/>
+    <Button type="button" variant="outline" size="icon" onClick={()=>p.onChange(Object.assign({},v,{interval:Math.min(365,v.interval+1)}))}>＋</Button>
+    <span className="text-muted">dias</span></div>
+   <div className="flex flex-wrap items-center gap-2 text-sm"><span className="text-muted">A partir de</span>
+    <Input type="date" className="w-44" value={v.anchor||dayKey()} onChange={e=>p.onChange(Object.assign({},v,{anchor:e.target.value||dayKey()}))}/></div>
+  </div>}
+  <div className="rounded-xl bg-surface px-3 py-2 text-xs">
+   {freqOk(v)?<div><p className="font-semibold">{freqLabel(v)}{mode==='days'?' · '+days.length+' dia(s)/semana':''}</p>
+    <p className="mt-0.5 text-muted">Próximas: {nx.map(k=>short(k)+' ('+WD[parseKey(k).getDay()]+')').join(' · ')}</p></div>
+   :<p className="font-semibold text-rose-600">Selecione ao menos um dia da semana.</p>}</div>
+ </div>;}
+
+const blankTask=c=>({name:'',description:'',notes:'',categoryId:c[0]?c[0].id:'',priority:'medium',
+ color:COLORS[0],icon:'✅',frequency:{type:'daily'},active:true});
+
+function TaskForm(p){
+ const {st}=useApp(); const [f,setF]=useState(p.initial);
+ useEffect(()=>{if(p.open)setF(p.initial);},[p.open,p.initial]);
+ if(!p.open)return null;
+ const set=(k,v)=>setF(o=>Object.assign({},o,{[k]:v}));
+ const bad=!f.name.trim()||!freqOk(f.frequency);
+ return <Modal open={p.open} onClose={p.onClose} wide title={f.id?'Editar tarefa':'Nova tarefa'}>
+  <form className="space-y-4" onSubmit={e=>{e.preventDefault();if(bad)return;
+    p.onSave(Object.assign({},f,{name:f.name.trim()}));p.onClose();}}>
+   <div><Lab>Nome *</Lab><Input value={f.name} autoFocus onChange={e=>set('name',e.target.value)} placeholder="Ex.: Conferir e-mails"/></div>
+   <div><Lab>Descrição</Lab><Area rows="2" value={f.description} onChange={e=>set('description',e.target.value)}/></div>
+   <div><Lab>Em quais dias esta tarefa deve aparecer? *</Lab>
+    <FreqPicker value={f.frequency} onChange={v=>set('frequency',v)}/></div>
+   <div className="grid gap-4 sm:grid-cols-2">
+    <div><Lab>Categoria</Lab><Select value={f.categoryId} onChange={e=>set('categoryId',e.target.value)}>
+     <option value="">Sem categoria</option>
+     {st.categories.map(c=><option key={c.id} value={c.id}>{c.icon+' '+c.name}</option>)}</Select></div>
+    <div><Lab>Prioridade</Lab><Select value={f.priority} onChange={e=>set('priority',e.target.value)}>
+     {PRIOS.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</Select></div></div>
+   <div className="grid gap-4 sm:grid-cols-2">
+    <div><Lab>Cor</Lab><div className="flex flex-wrap gap-2">{COLORS.map(c=>
+     <button key={c} type="button" onClick={()=>set('color',c)} style={{background:c}}
+      className={cx('h-8 w-8 rounded-xl',f.color===c&&'ring-2 ring-brand-500 ring-offset-2 ring-offset-surface')}/>)}
+    </div></div>
+    <div><Lab>Ícone</Lab><div className="flex flex-wrap gap-1.5">{ICONS.map(i=>
+     <button key={i} type="button" onClick={()=>set('icon',i)}
+      className={cx('h-8 w-8 rounded-xl text-base',f.icon===i?'bg-brand-600 text-white':'bg-surface2')}>{i}</button>)}
+    </div></div></div>
+   <div><Lab>Observações</Lab><Area rows="2" value={f.notes} onChange={e=>set('notes',e.target.value)}/></div>
+   <div className="rounded-xl border bg-surface2/60 p-3"><Switch checked={f.active} onChange={v=>set('active',v)}
+    label={<span><b>{f.active?'Ativa':'Inativa'}</b><span className="block text-xs text-muted">Inativas não aparecem em "Hoje"</span></span>}/></div>
+   <div className="flex justify-end gap-2 border-t pt-4">
+    {bad&&<span className="mr-auto text-xs text-rose-600">Informe nome e ao menos um dia.</span>}
+    <Button type="button" variant="outline" onClick={p.onClose}>Cancelar</Button>
+    <Button type="submit" disabled={bad}>{f.id?'Salvar':'Criar tarefa'}</Button></div>
+  </form></Modal>;}
+
+function QuickDays(p){const {setDays}=useApp();
+ const [ds,setDs]=useState(fDays(p.task.frequency));
+ const isInt=p.task.frequency.type==='everyXDays';
+ return <Modal open onClose={p.onClose} title={'Dias de: '+p.task.name}>
+  {isInt?<p className="rounded-xl bg-surface2 p-3 text-sm text-muted">
+   Esta tarefa usa intervalo fixo ({freqLabel(p.task.frequency)}). Use <b>Editar</b> para trocar para dias da semana.</p>
+  :<div className="space-y-4">
+   <div className="grid grid-cols-7 gap-1.5">{WDO.map(d=>{const on=ds.indexOf(d)>=0;
+    return <button key={d} type="button" title={WDL[d]} onClick={()=>setDs(on?ds.filter(x=>x!==d):ds.concat([d]))}
+     className={cx('flex h-14 flex-col items-center justify-center gap-1 rounded-xl border text-[11px] font-semibold',
+      on?'border-brand-600 bg-brand-600 text-white':'bg-surface')}>
+     <span className="text-base leading-none">{WD[d][0]}</span><span className="opacity-80">{WD[d]}</span></button>;})}</div>
+   <div className="flex flex-wrap gap-1.5">{SHORTCUTS.map(s=>
+    <button key={s.l} type="button" onClick={()=>setDs(s.d)}
+     className={cx('rounded-lg border px-2.5 py-1 text-[11px]',same(ds,s.d)?'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-900/30':'bg-surface text-muted')}>{s.l}</button>)}</div>
+   <p className="text-xs text-muted">Resultado: <b>{freqLabel(daysToFreq(ds))}</b></p>
+   <div className="flex justify-end gap-2 border-t pt-4">
+    <Button variant="outline" onClick={p.onClose}>Cancelar</Button>
+    <Button disabled={!ds.length} onClick={()=>{setDays(p.task.id,ds);p.onClose();}}>Salvar dias</Button></div>
+  </div>}</Modal>;}
+
+/* ═══ 11. PAGAMENTOS — UI ═══ */
+const blankPay=cats=>({name:'',amount:'',notes:'',
+ categoryId:(cats.filter(c=>c.name==='Financeiro')[0]||cats[0]||{}).id||'',
+ color:'#f59e0b',icon:'🧾',autoDebit:false,active:true,recurrence:{type:'monthly',day:10},startDate:'',until:''});
+
+function RecPicker(p){const r=p.value, set=o=>p.onChange(Object.assign({},r,o));
+ const type=t=>{
+  if(t==='monthly')p.onChange({type:'monthly',day:r.day||10});
+  if(t==='weekly')p.onChange({type:'weekly',weekday:BIZ.indexOf(r.weekday)>=0?r.weekday:5});
+  if(t==='yearly')p.onChange({type:'yearly',month:r.month==null?new Date().getMonth():r.month,day:r.day||10});
+  if(t==='once')p.onChange({type:'once',date:r.date||dayKey()});};
+ return <div className="space-y-3 rounded-2xl border bg-surface2/40 p-3">
+  <div className="grid grid-cols-4 gap-1 rounded-xl bg-surface2 p-1">
+   {[['monthly','Mensal'],['weekly','Semanal'],['yearly','Anual'],['once','Única']].map(a=>
+    <button key={a[0]} type="button" onClick={()=>type(a[0])}
+     className={cx('rounded-lg px-2 py-1.5 text-xs font-semibold',r.type===a[0]?'bg-surface shadow-soft':'text-muted')}>{a[1]}</button>)}</div>
+  {r.type==='monthly'&&<div className="space-y-2"><Lab>Dia do vencimento</Lab>
+   <div className="grid grid-cols-8 gap-1 sm:grid-cols-11">{Array.from({length:31},(_,i)=>i+1).map(d=>
+    <button key={d} type="button" onClick={()=>set({day:d})}
+     className={cx('h-8 rounded-lg border text-[11px] font-semibold',r.day===d?'border-brand-600 bg-brand-600 text-white':'bg-surface')}>{d}</button>)}</div>
+   {r.day>=29&&<p className="text-[11px] text-muted">Meses curtos usam o último dia disponível.</p>}</div>}
+  {r.type==='weekly'&&<div className="space-y-2"><Lab>Dia da semana (somente dias úteis)</Lab>
+   <div className="grid grid-cols-5 gap-1.5">{BIZ.map(d=>
+    <button key={d} type="button" onClick={()=>set({weekday:d})} title={WDL[d]}
+     className={cx('flex h-14 flex-col items-center justify-center rounded-xl border text-[11px] font-semibold',
+      r.weekday===d?'border-brand-600 bg-brand-600 text-white':'bg-surface')}>
+     <span className="text-base">{WD[d][0]}</span><span className="opacity-80">{WD[d]}</span></button>)}</div></div>}
+  {r.type==='yearly'&&<div className="grid gap-2 sm:grid-cols-2">
+   <div><Lab>Mês</Lab><Select value={r.month} onChange={e=>set({month:+e.target.value})}>
+    {MOL.map((m,i)=><option key={i} value={i}>{m}</option>)}</Select></div>
+   <div><Lab>Dia</Lab><Input type="number" min="1" max="31" value={r.day} onChange={e=>set({day:clamp(+e.target.value||1,1,31)})}/></div></div>}
+  {r.type==='once'&&<div><Lab>Data do vencimento</Lab>
+   <Input type="date" value={r.date||dayKey()} onChange={e=>set({date:e.target.value})}/></div>}
+  <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-[11px] text-brand-800 dark:border-brand-900 dark:bg-brand-900/25 dark:text-brand-200">
+   ⚖️ Pagamentos ocorrem somente de segunda a sexta. Vencimentos em sábado ou domingo são antecipados para a sexta-feira anterior.</div>
+  {p.preview&&p.preview.length>0&&<div className="rounded-xl bg-surface px-3 py-2 text-xs">
+   <p className="font-semibold">Próximos vencimentos</p>
+   <ul className="mt-1 space-y-0.5 text-muted">{p.preview.map(o=>
+    <li key={o.key}>{short(o.effective)} ({WD[parseKey(o.effective).getDay()]})
+     {o.ant?<span className="ml-1 text-amber-600">↩ {antNote(o.nomWd)}</span>:null}</li>)}</ul></div>}
+ </div>;}
+
+function PayForm(p){
+ const {st}=useApp(); const [f,setF]=useState(p.initial);
+ useEffect(()=>{if(p.open)setF(p.initial);},[p.open,p.initial]);
+ if(!p.open)return null;
+ const set=(k,v)=>setF(o=>Object.assign({},o,{[k]:v}));
+ const amt=parseMoney(f.amount);
+ const bad=!f.name.trim()||!recOk(f.recurrence)||amt<=0;
+ const prev=recOk(f.recurrence)?occFor({id:'x',recurrence:f.recurrence,startDate:f.startDate,until:f.until},
+  dayKey(),dayKey(addDays(new Date(),400))).slice(0,3):[];
+ return <Modal open={p.open} onClose={p.onClose} wide title={f.id?'Editar pagamento':'Novo pagamento'}>
+  <form className="space-y-4" onSubmit={e=>{e.preventDefault();if(bad)return;
+    p.onSave(Object.assign({},f,{name:f.name.trim(),amount:amt}));p.onClose();}}>
+   <div className="grid gap-4 sm:grid-cols-3">
+    <div className="sm:col-span-2"><Lab>Descrição *</Lab>
+     <Input value={f.name} autoFocus onChange={e=>set('name',e.target.value)} placeholder="Ex.: Conta de energia"/></div>
+    <div><Lab>Valor *</Lab><div className="relative">
+     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">R$</span>
+     <Input className="pl-9 text-right tabular-nums" inputMode="decimal" placeholder="0,00"
+      value={f.amount} onChange={e=>set('amount',e.target.value)}/></div></div></div>
+   <div><Lab>Quando vence? *</Lab><RecPicker value={f.recurrence} onChange={v=>set('recurrence',v)} preview={prev}/></div>
+   {f.recurrence.type!=='once'&&<div className="grid gap-4 sm:grid-cols-2">
+    <div><Lab>Começa em (opcional)</Lab><Input type="date" value={f.startDate||''} onChange={e=>set('startDate',e.target.value)}/></div>
+    <div><Lab>Termina em (opcional)</Lab><Input type="date" value={f.until||''} onChange={e=>set('until',e.target.value)}/>
+     <p className="mt-1 text-[11px] text-muted">Use para parcelamentos com fim previsto.</p></div></div>}
+   <div className="grid gap-4 sm:grid-cols-2">
+    <div><Lab>Categoria</Lab><Select value={f.categoryId} onChange={e=>set('categoryId',e.target.value)}>
+     <option value="">Sem categoria</option>
+     {st.categories.map(c=><option key={c.id} value={c.id}>{c.icon+' '+c.name}</option>)}</Select></div>
+    <div><Lab>Ícone</Lab><div className="flex flex-wrap gap-1.5">{PICONS.map(i=>
+     <button key={i} type="button" onClick={()=>set('icon',i)}
+      className={cx('h-8 w-8 rounded-xl text-base',f.icon===i?'bg-brand-600 text-white':'bg-surface2')}>{i}</button>)}</div></div></div>
+   <div><Lab>Cor</Lab><div className="flex flex-wrap gap-2">{COLORS.map(c=>
+    <button key={c} type="button" onClick={()=>set('color',c)} style={{background:c}}
+     className={cx('h-8 w-8 rounded-xl',f.color===c&&'ring-2 ring-brand-500 ring-offset-2 ring-offset-surface')}/>)}</div></div>
+   <div><Lab>Observações</Lab><Area rows="2" value={f.notes} onChange={e=>set('notes',e.target.value)}
+    placeholder="Banco, código de barras, forma de pagamento…"/></div>
+   <div className="grid gap-3 rounded-xl border bg-surface2/60 p-3 sm:grid-cols-2">
+    <Switch checked={f.autoDebit} onChange={v=>set('autoDebit',v)}
+     label={<span><b>Débito automático</b><span className="block text-xs text-muted">Apenas conferir</span></span>}/>
+    <Switch checked={f.active!==false} onChange={v=>set('active',v)}
+     label={<span><b>{f.active!==false?'Ativo':'Inativo'}</b><span className="block text-xs text-muted">Inativos saem da agenda</span></span>}/></div>
+   <div className="flex justify-end gap-2 border-t pt-4">
+    {bad&&<span className="mr-auto text-xs text-rose-600">Informe descrição, valor e recorrência.</span>}
+    <Button type="button" variant="outline" onClick={p.onClose}>Cancelar</Button>
+    <Button type="submit" disabled={bad}>{f.id?'Salvar':'Criar pagamento'}</Button></div>
+  </form></Modal>;}
+
+function PayModal(p){const {markPaid}=useApp(); const o=p.occ;
+ const [amt,setAmt]=useState(m2(o.amount)), [dt,setDt]=useState(dayKey());
+ const v=parseMoney(amt), wknd=isWknd(parseKey(dt));
+ return <Modal open onClose={p.onClose} title="Registrar pagamento"><div className="space-y-4">
+  <div className="flex items-center gap-3 rounded-xl bg-surface2 p-3">
+   <span className="grid h-10 w-10 place-items-center rounded-xl text-lg" style={{background:o.color+'22'}}>{o.icon}</span>
+   <div className="min-w-0"><p className="truncate font-semibold">{o.name}</p>
+    <p className="text-xs text-muted">Vencimento {short(o.effective)} ({WD[parseKey(o.effective).getDay()]})
+     {o.ant?' · '+antNote(o.nomWd):''}</p></div></div>
+  <div className="grid gap-4 sm:grid-cols-2">
+   <div><Lab>Valor pago</Lab><div className="relative">
+    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">R$</span>
+    <Input className="pl-9 text-right tabular-nums" inputMode="decimal" autoFocus value={amt} onChange={e=>setAmt(e.target.value)}/></div>
+    {Math.abs(v-o.base)>0.001&&<p className="mt-1 text-[11px] text-amber-600">Diferente do previsto ({money(o.base)}).</p>}</div>
+   <div><Lab>Data do pagamento</Lab><Input type="date" value={dt} onChange={e=>setDt(e.target.value)}/>
+    {wknd&&<p className="mt-1 text-[11px] text-amber-600">A data escolhida é fim de semana.</p>}</div></div>
+  <div className="flex justify-end gap-2 border-t pt-4">
+   <Button variant="outline" onClick={p.onClose}>Cancelar</Button>
+   <Button variant="ok" disabled={v<=0} onClick={()=>{markPaid(o.pid,o.key,v,dt);p.onClose();}}>Confirmar pagamento</Button></div>
+ </div></Modal>;}
+
+function PayRow(p){const o=p.occ, w=parseKey(o.effective).getDay();
+ const tone=p.status==='over'?'border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/30'
+  :p.status==='today'?'border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/25':'bg-surface';
+ return <div className={cx('flex items-start gap-3 rounded-2xl border p-4 transition-all animate-popIn',
+  o.paid?'bg-surface2/60 opacity-75':cx(tone,'shadow-soft hover:shadow-lift hover:-translate-y-px'))}>
+    <button onClick={o.paid?p.onUnpay:p.onPay} aria-label={o.paid?'Desfazer':'Pagar'}
+   className={cx('mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl border-2',
+    o.paid?'border-emerald-500 bg-emerald-500 text-white':'hover:border-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/25')}>
+   {o.paid?<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="3.2"
+    strokeLinecap="round" strokeLinejoin="round" className="animate-chk"><path d="M20 6L9 17l-5-5"/></svg>
+    :<span className="text-[10px] font-bold text-muted">R$</span>}</button>
+  <div className="min-w-0 flex-1">
+   <div className="flex flex-wrap items-center gap-2"><span>{o.icon}</span>
+    <p className={cx('min-w-0 truncate font-semibold',o.paid&&'text-muted line-through')}>{o.name}</p>
+    {o.skipped&&<Badge className="bg-slate-200 text-slate-600 dark:bg-slate-800">Ignorado</Badge>}</div>
+   <div className="mt-2 flex flex-wrap gap-1.5">
+    <Badge className={cx('font-semibold',p.status==='over'?'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+     :p.status==='today'?'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300':'bg-surface2 text-muted')}>
+     📅 {short(o.effective)} · {WD[w]}
+     {p.status==='over'?' · '+diffDays(new Date(),parseKey(o.effective))+'d em atraso':''}
+     {p.status==='today'?' · vence hoje':''}</Badge>
+    {o.ant&&<Badge className="bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+     title={'Data nominal: '+short(o.nominal)}>↩ {antNote(o.nomWd)}</Badge>}
+    {p.cat&&<Badge className="bg-surface2 text-muted">{p.cat.icon+' '+p.cat.name}</Badge>}
+    <Badge className="bg-surface2 text-muted">{o.recLabel}</Badge>
+    {o.autoDebit&&<Badge className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">🔁 Débito automático</Badge>}</div>
+   {o.notes&&<p className="mt-2 truncate text-xs text-muted">📝 {o.notes}</p>}
+   {o.paid&&o.paidAt&&<p className="mt-2 text-xs font-medium text-emerald-600">
+    ✔ Pago em {short(dayKey(new Date(o.paidAt)))} às {hhmm(o.paidAt)}</p>}</div>
+  <div className="flex shrink-0 flex-col items-end gap-1">
+   <span className={cx('font-bold tabular-nums',o.paid?'text-muted':p.status==='over'?'text-rose-600':'')}>{money(o.amount)}</span>
+   {!o.paid&&<Button size="xs" variant="ghost" className="text-muted" onClick={p.onSkip}>pular</Button>}</div>
+ </div>;}
+
+function PayCal(p){const d=p.month, y=d.getFullYear(), m=d.getMonth();
+ const lead=(new Date(y,m,1).getDay()+6)%7, total=dim(y,m);
+ const cells=Array.from({length:lead},()=>null).concat(Array.from({length:total},(_,i)=>dayKey(new Date(y,m,i+1))));
+ const by={}; p.items.forEach(o=>{if(!o.skipped){(by[o.effective]=by[o.effective]||[]).push(o);}});
+ const tk=dayKey();
+ return <div>
+  <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase text-muted">
+   {[1,2,3,4,5,6,0].map(x=><span key={x} className={x===0||x===6?'text-muted/60':''}>{WD[x]}</span>)}</div>
+  <div className="mt-1 grid grid-cols-7 gap-1">{cells.map((k,i)=>{
+   if(!k)return <span key={'e'+i}/>;
+   const dd=parseKey(k), wknd=isWknd(dd), items=by[k]||[];
+   const sum=items.reduce((s,o)=>s+o.amount,0);
+   const allPaid=items.length&&items.every(o=>o.paid);
+   const over=items.some(o=>!o.paid&&k<tk);
+   return <div key={k} title={items.map(o=>o.name+' · '+money(o.amount)+(o.paid?' (pago)':'')).join('\n')}
+    className={cx('min-h-[52px] rounded-xl border p-1.5',
+     wknd?'border-dashed bg-surface2/40 text-muted/60':'bg-surface',
+     k===tk&&'ring-1 ring-brand-500',
+     over&&'border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/25',
+     !over&&allPaid&&'border-emerald-300 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/25')}>
+    <div className="flex items-center justify-between">
+     <span className={cx('text-[11px] font-semibold tabular-nums',k===tk&&'text-brand-600')}>{dd.getDate()}</span>
+     {wknd&&<span className="text-[9px]">—</span>}</div>
+    {items.length>0&&<div><p className="mt-0.5 truncate text-[10px] font-bold tabular-nums">{m2(sum)}</p>
+     <div className="mt-0.5 flex gap-0.5">{items.slice(0,4).map(o=>
+      <span key={o.pid+o.key} className={cx('h-1.5 w-1.5 rounded-full',o.paid?'bg-emerald-500':'bg-brand-500')}/>)}
+      {items.length>4&&<span className="text-[8px] text-muted">+{items.length-4}</span>}</div></div>}
+   </div>;})}</div>
+  <p className="mt-2 text-[11px] text-muted">Sábados e domingos aparecem tracejados: nenhum pagamento é agendado
+   nesses dias — os vencimentos são antecipados para a sexta-feira anterior.</p></div>;}
+
+/* ═══ 12. CONSISTÊNCIA ═══ */
+const band=v=>v>=85?{l:'Excelente',c:'text-emerald-600',b:'bg-emerald-500'}
+ :v>=70?{l:'Boa',c:'text-brand-600',b:'bg-brand-500'}
+ :v>=50?{l:'Irregular',c:'text-amber-600',b:'bg-amber-500'}
+ :{l:'Frágil',c:'text-rose-600',b:'bg-rose-500'};
+function Consist(p){const r=p.r, b=band(r.index);
+ if(!r.has)return <Card><p className="text-sm font-semibold uppercase tracking-wide text-muted">📊 Painel de Consistência</p>
+  <p className="mt-3 text-sm text-muted">O índice (0–100) combina taxa de conclusão, regularidade, sequência de dias
+   perfeitos e cobertura. Começa a ser calculado no primeiro dia com tarefas registradas.</p></Card>;
+ return <section className="space-y-4">
+  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">📊 Painel de Consistência</h2>
+  <div className="grid gap-4 lg:grid-cols-3">
+   <Card><p className="text-xs uppercase text-muted">Índice de consistência</p>
+    <div className="mt-1 flex items-end gap-2"><span className={cx('text-5xl font-bold tabular-nums',b.c)}>{r.index}</span>
+     <span className="pb-2 text-sm text-muted">/100 · {b.l}</span></div>
+    <Progress value={r.index} barClass={b.b} className="mt-3"/>
+    <div className="mt-4 space-y-2 text-xs">
+     {[['Taxa de conclusão (50%)',r.bd.comp],['Regularidade (20%)',r.bd.reg],
+       ['Sequência (15%)',r.bd.streak],['Cobertura de dias (15%)',r.bd.cov]].map(a=>
+      <div key={a[0]} className="flex items-center gap-2"><span className="w-40 shrink-0 text-muted">{a[0]}</span>
+       <Progress value={a[1]} className="h-1.5"/><span className="w-8 text-right font-semibold tabular-nums">{a[1]}</span></div>)}
+    </div></Card>
+   <Card><p className="text-xs uppercase text-muted">Médias móveis</p>
+    <div className="mt-3 space-y-3">{[['Últimos 7 dias',r.a7],['Últimos 30 dias',r.a30],['Últimos 90 dias',r.a90]].map(a=>
+     <div key={a[0]}><div className="flex justify-between text-sm"><span className="text-muted">{a[0]}</span>
+      <span className="font-semibold tabular-nums">{a[1]}%</span></div><Progress value={a[1]} className="mt-1 h-1.5"/></div>)}</div>
+    <div className="mt-4 grid grid-cols-3 gap-2 border-t pt-3 text-sm">
+     <div><p className="text-xs text-muted">Dias 100%</p><p className="font-bold tabular-nums">{r.perfect}</p></div>
+     <div><p className="text-xs text-muted">Horário médio</p><p className="font-bold tabular-nums">{fmtHour(r.avgHour)}</p></div>
+     <div><p className="text-xs text-muted">Tendência</p>
+      <p className={cx('font-bold tabular-nums',r.trend>=0?'text-emerald-600':'text-rose-600')}>{(r.trend>=0?'+':'')+r.trend} pp</p></div></div>
+   </Card>
+   <Card><p className="text-xs uppercase text-muted">🚨 Pontos de atenção</p>
+    <ul className="mt-3 space-y-2">{r.neg.length===0&&<li className="text-sm text-muted">Sem dados suficientes ainda.</li>}
+     {r.neg.map(t=><li key={t.id} className="flex items-center gap-2 text-sm"><span>{t.icon}</span>
+      <span className="min-w-0 flex-1 truncate">{t.name}</span>
+      <span className="rounded-lg bg-rose-100 px-1.5 text-xs font-semibold tabular-nums text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+       {Math.round(t.rate*100)}%</span></li>)}</ul>
+    {!p.compact&&r.late.length>0&&<div><p className="mt-4 border-t pt-3 text-xs uppercase text-muted">🌙 Deixadas para o fim do dia</p>
+     <ul className="mt-2 space-y-1.5 text-sm">{r.late.map(t=><li key={t.id} className="flex items-center gap-2">
+      <span>{t.icon}</span><span className="min-w-0 flex-1 truncate">{t.name}</span>
+      <span className="text-xs font-semibold tabular-nums text-muted">{fmtHour(t.avgHour)}</span></li>)}</ul></div>}
+   </Card></div>
+  {!p.compact&&r.top.length>0&&<Card><p className="text-xs uppercase text-muted">🏆 Tarefas mais concluídas</p>
+   <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{r.top.map(t=>
+    <div key={t.id} className="flex items-center gap-2 rounded-xl bg-surface2 px-3 py-2 text-sm"><span>{t.icon}</span>
+     <span className="min-w-0 flex-1 truncate">{t.name}</span>
+     <span className="font-semibold tabular-nums text-emerald-600">{Math.round(t.rate*100)}%</span></div>)}</div></Card>}
+ </section>;}
+
+/* ═══ 13. PÁGINAS ═══ */
+function Welcome(p){return <Card className="relative overflow-hidden">
+ <div className="pointer-events-none absolute -right-14 -top-16 h-48 w-48 rounded-full bg-brand-500/10 blur-2xl"/>
+ <div className="relative"><p className="text-xs font-semibold uppercase tracking-widest text-brand-600">Bem-vindo</p>
+  <h2 className="mt-1 text-2xl font-bold tracking-tight">Comece cadastrando suas rotinas</h2>
+  <p className="mt-2 max-w-xl text-sm text-muted">Escolha os dias da semana de cada tarefa e o RotinaFlow monta sua
+   lista automaticamente. Na Agenda de Pagamentos, os vencimentos seguem apenas dias úteis — sábados e domingos
+   são antecipados para a sexta-feira.</p>
+  <div className="mt-4 flex flex-wrap gap-2"><Button onClick={p.onTask}>＋ Criar primeira tarefa</Button>
+   <Button variant="outline" onClick={p.onPay}>💳 Cadastrar pagamento</Button></div></div></Card>;}
+
+function Dashboard(p){
+ const {st,today,report,toggleEntry,pay}=useApp();
+ const es=today?today.entries:[];
+ const pend=es.filter(e=>!e.done).sort((a,b)=>PW[a.priority]-PW[b.priority]||a.order-b.order);
+ const last=es.filter(e=>e.done&&e.completedAt).sort((a,b)=>b.completedAt.localeCompare(a.completedAt))[0];
+ const nx=pend[0], lv=levelFromXp(st.profile.xp), b=band(report.index), w=new Date().getDay();
+ const noT=st.tasks.filter(t=>!t.archived).length===0;
+ const noP=(st.payments||[]).filter(x=>!x.archived).length===0;
+ return <div className="space-y-5">
+  {noT&&noP&&<Welcome onTask={p.onTask} onPay={p.onPay}/>}
+  <Card className="relative overflow-hidden">
+   <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-brand-500/10 blur-2xl"/>
+   <div className="relative flex flex-wrap items-end justify-between gap-6"><div>
+    <p className="text-xs font-semibold uppercase tracking-widest text-muted">Hoje · {WDL[w]}</p>
+    <p className="mt-1 text-4xl font-bold">{today?today.total:0} <span className="text-lg font-medium text-muted">tarefas</span></p>
+    <div className="mt-4 flex items-center gap-3"><Progress value={today?today.percent:0} blocks className="w-44"/>
+     <span className="text-2xl font-bold tabular-nums text-brand-600">{today?today.percent:0}%</span></div>
+    <div className="mt-3 flex gap-4 text-sm"><span className="text-emerald-600">✔ {today?today.completed:0} concluídas</span>
+     <span className="text-muted">◻ {today?today.total-today.completed:0} pendentes</span></div></div>
+    <Button size="lg" onClick={()=>p.go('hoje')}>Ir para Hoje →</Button></div></Card>
+
+  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   <Stat icon="🔥" label="Sequência atual" value={report.cur+' dias'} hint={'Recorde: '+report.longest}/>
+   <Stat icon="📈" label="Média 7 dias" value={report.a7+'%'} hint={report.has?((report.trend>=0?'+':'')+report.trend+' pp vs. 30 dias'):'Sem dados ainda'}/>
+   <Stat icon="⭐" label={'Nível '+lv.level} value={st.profile.xp+' XP'} hint={'Faltam '+(lv.forNext-lv.inLvl)+' XP'}/>
+   <Stat icon="🎯" label="Índice de consistência" value={report.has?report.index+'/100':'—'} hint={report.has?b.l:'Aguardando registros'} tone={report.has?b.c:''}/>
+  </div>
+
+  <Card className={pay.over.length?'border-rose-300 dark:border-rose-900':''}>
+   <div className="flex flex-wrap items-center justify-between gap-3">
+    <p className="text-xs font-semibold uppercase tracking-wide text-muted">💳 Agenda de Pagamentos</p>
+    <Button size="sm" variant="soft" onClick={()=>p.go('pagamentos')}>Abrir agenda →</Button></div>
+   {noP?<p className="mt-3 text-sm text-muted">Nenhum pagamento cadastrado. Registre contas recorrentes e o app
+    calcula os vencimentos em dias úteis automaticamente.
+    <Button size="sm" variant="outline" className="ml-2" onClick={p.onPay}>＋ Cadastrar</Button></p>
+   :<div><div className="mt-3 grid gap-3 sm:grid-cols-3">
+     <div className={cx('rounded-xl border p-3',pay.over.length?'border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/30':'bg-surface2/50')}>
+      <p className="text-[11px] uppercase text-muted">Em atraso</p>
+      <p className={cx('text-xl font-bold tabular-nums',pay.over.length&&'text-rose-600')}>{pay.over.length}</p>
+      <p className="text-xs text-muted tabular-nums">{money(pay.overSum)}</p></div>
+     <div className={cx('rounded-xl border p-3',pay.today.length?'border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/25':'bg-surface2/50')}>
+      <p className="text-[11px] uppercase text-muted">Vencem hoje</p>
+      <p className="text-xl font-bold tabular-nums">{pay.today.length}</p>
+      <p className="text-xs text-muted tabular-nums">{money(pay.todaySum)}</p></div>
+     <div className="rounded-xl border bg-surface2/50 p-3"><p className="text-[11px] uppercase text-muted">Próximos 7 dias</p>
+      <p className="text-xl font-bold tabular-nums">{pay.n7.length}</p>
+      <p className="text-xs text-muted tabular-nums">{money(pay.n7Sum)}</p></div></div>
+    <div className="mt-4"><div className="flex items-center justify-between text-xs">
+     <span className="text-muted">Mês atual · pago {money(pay.monthPaid)} de {money(pay.monthTotal)}</span>
+     <span className="font-bold tabular-nums text-brand-600">{pay.monthPct}%</span></div>
+     <Progress value={pay.monthPct} className="mt-1.5" barClass="bg-emerald-500"/></div>
+    {pay.next&&<p className="mt-3 text-sm"><span className="text-muted">Próximo: </span>
+     <b>{pay.next.icon} {pay.next.name}</b>
+     <span className="text-muted"> · {short(pay.next.effective)} ({WD[parseKey(pay.next.effective).getDay()]}) · </span>
+     <b className="tabular-nums">{money(pay.next.amount)}</b>
+     {pay.next.ant&&<span className="ml-1 text-xs text-violet-600">↩ antecipado</span>}</p>}</div>}
+  </Card>
+
+  <div className="grid gap-4 lg:grid-cols-3">
+   <Card><p className="text-xs font-semibold uppercase text-muted">Última concluída</p>
+    {last?<div className="mt-3 flex items-center gap-3"><span className="text-xl">{last.icon}</span>
+     <div className="min-w-0"><p className="truncate font-semibold">{last.name}</p>
+      <p className="text-sm text-emerald-600">às {hhmm(last.completedAt)}</p></div></div>
+    :<p className="mt-3 text-sm text-muted">Nada concluído ainda hoje.</p>}</Card>
+   <Card><p className="text-xs font-semibold uppercase text-muted">Próxima sugerida</p>
+    {nx?<div className="mt-3"><div className="flex items-center gap-3"><span className="text-xl">{nx.icon}</span>
+     <div className="min-w-0"><p className="truncate font-semibold">{nx.name}</p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+       <Badge className="bg-surface2 text-muted">{nx.categoryIcon+' '+nx.categoryName}</Badge>
+       <Badge className={pMeta(nx.priority).badge}>{pMeta(nx.priority).label}</Badge></div></div></div>
+     <Button size="sm" variant="soft" className="mt-3 w-full" onClick={()=>toggleEntry(dayKey(),nx.taskId)}>Concluir agora</Button></div>
+    :<p className="mt-3 text-sm text-muted">{noT?'Cadastre uma rotina para começar.':'Tudo em ordem.'}</p>}</Card>
+   <Card><p className="text-xs font-semibold uppercase text-muted">Progresso de nível</p>
+    <p className="mt-2 text-2xl font-bold">Nível {lv.level}</p>
+    <p className="text-sm text-muted tabular-nums">{st.profile.xp} XP acumulados</p>
+    <Progress value={lv.progress*100} blocks barClass="bg-violet-500" className="mt-3"/>
+    <p className="mt-2 text-xs text-muted tabular-nums">{lv.inLvl}/{lv.forNext} XP para o nível {lv.level+1}</p></Card></div>
+
+  {!noT&&<Card><p className="text-xs font-semibold uppercase text-muted">Distribuição semanal das rotinas</p>
+   <div className="mt-3 grid grid-cols-7 gap-1.5">{WDO.map(d=>{
+    const n=st.tasks.filter(t=>t.active&&!t.archived&&runsOn(t.frequency,d)).length;
+    const mx=Math.max(1,...WDO.map(x=>st.tasks.filter(t=>t.active&&!t.archived&&runsOn(t.frequency,x)).length));
+    return <div key={d} className={cx('rounded-xl border p-2 text-center',d===w?'border-brand-500 bg-brand-50 dark:bg-brand-900/25':'bg-surface2/50')}>
+     <p className="text-[10px] font-semibold uppercase text-muted">{WD[d]}</p>
+     <p className="text-lg font-bold tabular-nums">{n}</p><Progress value={n/mx*100} className="mt-1 h-1"/></div>;})}</div></Card>}
+
+  <Consist r={report} compact/>
+
+  <Card><p className="text-xs font-semibold uppercase text-muted">🏅 Conquistas ({st.profile.achievements.length}/{ACH.length})</p>
+   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{ACH.map(a=>{
+    const on=st.profile.achievements.indexOf(a.id)>=0;
+    return <div key={a.id} title={a.d} className={cx('rounded-xl border p-3',on?'bg-gradient-to-br '+TIER[a.t]:'bg-surface2/50 opacity-55 grayscale')}>
+     <div className="flex items-center gap-2"><span className="text-xl">{on?a.e:'🔒'}</span>
+      <div className="min-w-0"><p className="truncate text-sm font-semibold">{a.n}</p>
+       <p className="truncate text-[11px] text-muted">{a.d}</p></div></div></div>;})}</div></Card>
+ </div>;}
+
+function Today(p){
+ const {st,today,toggleEntry,pay}=useApp();
+ const [q,setQ]=useState(''),[cat,setCat]=useState('all'),[pr,setPr]=useState('all'),[stt,setStt]=useState('all');
+ const noT=st.tasks.filter(t=>!t.archived).length===0;
+ const list=useMemo(()=>{
+  const es=(today?today.entries:[]).filter(e=>
+   (!q||e.name.toLowerCase().indexOf(q.toLowerCase())>=0)&&
+   (cat==='all'||e.categoryId===cat)&&(pr==='all'||e.priority===pr)&&
+   (stt==='all'||(stt==='done'?e.done:!e.done)));
+  return es.sort((a,b)=>(a.done-b.done)||(PW[a.priority]-PW[b.priority])||(a.order-b.order));},[today,q,cat,pr,stt]);
+ const pend=list.filter(e=>!e.done), done=list.filter(e=>e.done);
+ const alert=pay.over.length+pay.today.length;
+ return <div className="space-y-5">
+  {alert>0&&<div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
+   <span className="text-xl">💳</span>
+   <p className="min-w-0 flex-1 text-sm"><b>{alert} pagamento(s)</b> exigindo atenção
+    {pay.over.length?' · '+pay.over.length+' em atraso':''}
+    <span className="ml-1 text-muted tabular-nums">({money(pay.overSum+pay.todaySum)})</span></p>
+   <Button size="sm" variant="soft" onClick={()=>p.go('pagamentos')}>Ver agenda</Button></div>}
+  {noT?<Welcome onTask={p.onTask} onPay={p.onPay}/>:<div className="space-y-5">
+   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <Input placeholder="🔍 Pesquisar tarefas…" value={q} onChange={e=>setQ(e.target.value)}/>
+    <Select value={cat} onChange={e=>setCat(e.target.value)}><option value="all">Todas as categorias</option>
+     {st.categories.map(c=><option key={c.id} value={c.id}>{c.icon+' '+c.name}</option>)}</Select>
+    <Select value={pr} onChange={e=>setPr(e.target.value)}><option value="all">Toda prioridade</option>
+     {PRIOS.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</Select>
+    <Select value={stt} onChange={e=>setStt(e.target.value)}><option value="all">Pendentes e concluídas</option>
+     <option value="pending">Somente pendentes</option><option value="done">Somente concluídas</option></Select></div>
+   {today&&today.total>0&&pend.length===0&&stt==='all'&&
+    <div className="flex items-center gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900 dark:bg-emerald-950/40">
+     <span className="text-2xl">🎉</span><div><p className="font-semibold text-emerald-800 dark:text-emerald-300">Dia perfeito concluído</p>
+      <p className="text-sm text-emerald-700/80 dark:text-emerald-400/80">{today.completed} de {today.total} tarefas · +{PERFECT_XP} XP</p></div></div>}
+   {list.length===0&&<Empty icon="🌤️" title="Nenhuma tarefa para exibir"
+    desc={'Nada previsto para '+WDL[new Date().getDay()]+' ou os filtros não retornaram resultados.'}
+    action={<Button variant="outline" onClick={()=>{setQ('');setCat('all');setPr('all');setStt('all');}}>Limpar filtros</Button>}/>}
+   {pend.length>0&&<section className="space-y-2.5">
+    <h2 className="px-1 text-xs font-semibold uppercase text-muted">Pendentes · {pend.length}</h2>
+    {pend.map(e=><TaskCard key={e.taskId} entry={e} onToggle={()=>toggleEntry(dayKey(),e.taskId)}/>)}</section>}
+   {done.length>0&&<section className="space-y-2.5">
+    <h2 className="px-1 text-xs font-semibold uppercase text-muted">Concluídas · {done.length}</h2>
+    {done.map(e=><TaskCard key={e.taskId} entry={e} onToggle={()=>toggleEntry(dayKey(),e.taskId)}/>)}</section>}
+  </div>}</div>;}
+
+function Payments(p){
+ const {st,agenda,pay,savePay,delPay,dupPay,archPay,togPay,unmark,skipOcc}=useApp();
+ const [tab,setTab]=useState('agenda');
+ const [open,setOpen]=useState(false),[ed,setEd]=useState(null),[paying,setPaying]=useState(null);
+ const [q,setQ]=useState(''),[cat,setCat]=useState('all'),[stt,setStt]=useState('pending');
+ const [cur,setCur]=useState(()=>new Date());
+ const catOf=id=>st.categories.filter(c=>c.id===id)[0];
+ const novo=useCallback(()=>{setEd(blankPay(st.categories));setOpen(true);},[st.categories]);
+ useEffect(()=>{if(p.autoNew){novo();p.onAuto();}},[p.autoNew]);
+ const tk=dayKey(), mr=monthRange(cur);
+ const mItems=agenda.filter(o=>o.effective>=mr[0]&&o.effective<=mr[1]);
+ const mTot=mItems.filter(o=>!o.skipped).reduce((s,o)=>s+o.amount,0);
+ const mPaid=mItems.filter(o=>o.paid).reduce((s,o)=>s+o.amount,0);
+ const ok=o=>(!q||o.name.toLowerCase().indexOf(q.toLowerCase())>=0)&&(cat==='all'||o.categoryId===cat);
+ const pend=agenda.filter(o=>!o.paid&&!o.skipped&&ok(o));
+ const w7=dayKey(addDays(new Date(),7)), w30=dayKey(addDays(new Date(),30));
+ const groups=[{k:'over',t:'Em atraso',c:'text-rose-600',i:pend.filter(o=>o.effective<tk)},
+  {k:'today',t:'Vencem hoje',c:'text-amber-600',i:pend.filter(o=>o.effective===tk)},
+  {k:'w7',t:'Próximos 7 dias',c:'',i:pend.filter(o=>o.effective>tk&&o.effective<=w7)},
+  {k:'w30',t:'Próximos 30 dias',c:'',i:pend.filter(o=>o.effective>w7&&o.effective<=w30)}].filter(g=>g.i.length);
+ const paid=agenda.filter(o=>o.paid&&ok(o)&&o.effective>=mr[0]&&o.effective<=mr[1]).sort((a,b)=>b.effective.localeCompare(a.effective));
+ const skip=agenda.filter(o=>o.skipped&&ok(o)&&o.effective>=mr[0]&&o.effective<=mr[1]);
+ const noP=(st.payments||[]).filter(x=>!x.archived).length===0;
+ const mLabel=MOL[cur.getMonth()]+' de '+cur.getFullYear();
+ const stOf=o=>o.effective<tk?'over':o.effective===tk?'today':'future';
+
+ return <div className="space-y-5">
+  <div className="flex flex-wrap items-center gap-2">
+   <div className="flex rounded-xl bg-surface2 p-1">{[['agenda','📅 Agenda'],['cad','🗂️ Cadastros']].map(a=>
+    <button key={a[0]} onClick={()=>setTab(a[0])}
+     className={cx('rounded-lg px-3 py-1.5 text-xs font-semibold',tab===a[0]?'bg-surface shadow-soft':'text-muted')}>{a[1]}</button>)}</div>
+   <Button className="ml-auto" onClick={novo}>＋ Novo pagamento</Button></div>
+
+  <div className="rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-xs text-brand-800 dark:border-brand-900 dark:bg-brand-900/25 dark:text-brand-200">
+   ⚖️ <b>Regra de dias úteis:</b> pagamentos são agendados somente de segunda a sexta. Vencimento em sábado é
+   antecipado para a sexta anterior (−1 dia); em domingo, para a sexta (−2 dias). A data original permanece no histórico.</div>
+
+  {noP&&<Empty icon="💳" title="Nenhum pagamento cadastrado"
+   desc="Cadastre contas mensais, semanais, anuais ou avulsas. Cada vencimento respeita os dias úteis."
+   action={<Button onClick={novo}>Cadastrar pagamento</Button>}/>}
+
+  {!noP&&tab==='agenda'&&<div className="space-y-5">
+   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <Stat icon="🚨" label="Em atraso" value={pay.over.length} hint={money(pay.overSum)} tone={pay.over.length?'text-rose-600':''}/>
+    <Stat icon="📌" label="Vencem hoje" value={pay.today.length} hint={money(pay.todaySum)}/>
+    <Stat icon="🗓️" label="Próximos 7 dias" value={pay.n7.length} hint={money(pay.n7Sum)}/>
+    <Stat icon="✅" label="Pago no mês atual" value={pay.monthPct+'%'} hint={money(pay.monthPaid)+' de '+money(pay.monthTotal)}/></div>
+
+   <Card><div className="flex flex-wrap items-center gap-3">
+     <Button variant="outline" size="icon" onClick={()=>setCur(c=>new Date(c.getFullYear(),c.getMonth()-1,1))}>‹</Button>
+     <Button variant="outline" size="icon" onClick={()=>setCur(c=>new Date(c.getFullYear(),c.getMonth()+1,1))}>›</Button>
+     <p className="font-semibold capitalize">{mLabel}</p>
+     <div className="ml-auto text-right text-sm"><p className="font-bold tabular-nums">{money(mTot)}</p>
+      <p className="text-xs text-muted tabular-nums">pago {money(mPaid)}</p></div></div>
+    <Progress value={mTot?mPaid/mTot*100:0} className="mt-3" barClass="bg-emerald-500"/>
+    <div className="mt-4"><PayCal month={cur} items={mItems}/></div></Card>
+
+   <div className="grid gap-2 sm:grid-cols-3">
+    <Input placeholder="🔍 Pesquisar pagamentos…" value={q} onChange={e=>setQ(e.target.value)}/>
+    <Select value={cat} onChange={e=>setCat(e.target.value)}><option value="all">Todas as categorias</option>
+     {st.categories.map(c=><option key={c.id} value={c.id}>{c.icon+' '+c.name}</option>)}</Select>
+    <Select value={stt} onChange={e=>setStt(e.target.value)}><option value="pending">Pendentes</option>
+     <option value="paid">Pagos (mês exibido)</option><option value="all">Tudo</option></Select></div>
+
+   {stt!=='paid'&&groups.map(g=><section key={g.k} className="space-y-2.5">
+    <h2 className="flex items-center gap-2 px-1 text-xs font-semibold uppercase text-muted">
+     <span className={g.c}>{g.t}</span> · {g.i.length}
+     <span className="ml-auto font-bold tabular-nums">{money(g.i.reduce((s,o)=>s+o.amount,0))}</span></h2>
+    {g.i.map(o=><PayRow key={o.pid+o.key} occ={o} cat={catOf(o.categoryId)} status={stOf(o)}
+      onPay={()=>setPaying(o)} onUnpay={()=>unmark(o.pid,o.key)}
+      onSkip={()=>{if(confirm('Ignorar "'+o.name+'" com vencimento em '+short(o.effective)+'?'))skipOcc(o.pid,o.key,true);}}/>)}
+   </section>)}
+
+   {stt!=='paid'&&groups.length===0&&<Empty icon="🎉" title="Nada pendente nos próximos 30 dias"
+    desc="Todos os vencimentos do período estão registrados."/>}
+
+   {(stt==='paid'||stt==='all')&&paid.length>0&&<section className="space-y-2.5">
+    <h2 className="flex items-center gap-2 px-1 text-xs font-semibold uppercase text-muted">
+     Pagos em <span className="capitalize">{mLabel}</span> · {paid.length}
+     <span className="ml-auto font-bold tabular-nums text-emerald-600">{money(mPaid)}</span></h2>
+    {paid.map(o=><PayRow key={o.pid+o.key} occ={o} cat={catOf(o.categoryId)} status="future"
+      onPay={()=>setPaying(o)} onUnpay={()=>unmark(o.pid,o.key)} onSkip={()=>{}}/>)}</section>}
+
+   {stt==='all'&&skip.length>0&&<section className="space-y-2">
+    <h2 className="px-1 text-xs font-semibold uppercase text-muted">Ignorados · {skip.length}</h2>
+    {skip.map(o=><div key={o.pid+o.key} className="flex items-center gap-3 rounded-2xl border border-dashed bg-surface2/40 p-3 text-sm">
+     <span>{o.icon}</span><span className="min-w-0 flex-1 truncate text-muted line-through">{o.name}</span>
+     <span className="text-xs text-muted tabular-nums">{short(o.effective)}</span>
+     <Button size="xs" variant="ghost" onClick={()=>skipOcc(o.pid,o.key,false)}>restaurar</Button></div>)}</section>}
+  </div>}
+
+  {!noP&&tab==='cad'&&<div className="space-y-5">
+   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{st.payments.filter(x=>!x.archived).map(x=>{
+    const c=catOf(x.categoryId), n=nextEff(x);
+    return <Card key={x.id} className="flex flex-col gap-3 p-4 hover:shadow-lift">
+     <div className="flex items-start gap-3">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg" style={{background:x.color+'22',color:x.color}}>{x.icon}</span>
+      <div className="min-w-0 flex-1"><p className={cx('truncate font-semibold',x.active===false&&'text-muted line-through')}>{x.name}</p>
+       <p className="text-xs text-muted">{recLabel(x)}</p></div>
+      <span className="shrink-0 font-bold tabular-nums">{money(x.amount)}</span></div>
+     <div className="rounded-xl border bg-surface2/50 p-2 text-[11px]">
+      {n?<div><p className="font-medium">Próximo: {short(n.effective)} ({WD[parseKey(n.effective).getDay()]})</p>
+       {n.ant&&<p className="mt-0.5 text-violet-600">↩ {antNote(n.nomWd)}</p>}</div>
+       :<p className="text-muted">Sem vencimentos futuros.</p>}</div>
+     <div className="flex flex-wrap gap-1.5">
+      {c&&<Badge className="bg-surface2 text-muted">{c.icon+' '+c.name}</Badge>}
+      {x.autoDebit&&<Badge className="bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300">🔁 Débito automático</Badge>}
+      {x.until&&<Badge className="bg-surface2 text-muted">até {short(x.until)}</Badge>}
+      {x.active===false&&<Badge className="bg-slate-200 text-slate-600 dark:bg-slate-800">Inativo</Badge>}</div>
+     {x.notes&&<p className="rounded-xl bg-surface2 p-2 text-xs text-muted">📝 {x.notes}</p>}
+     <div className="mt-auto flex items-center gap-1 border-t pt-3">
+      <Button size="sm" variant="soft" onClick={()=>{setEd(Object.assign({},x,{amount:m2(x.amount)}));setOpen(true);}}>Editar</Button>
+      <Button size="sm" variant="ghost" onClick={()=>dupPay(x.id)} title="Duplicar">⧉</Button>
+      <Button size="sm" variant="ghost" onClick={()=>togPay(x.id)} title="Ativar/Desativar">{x.active===false?'▶':'⏸'}</Button>
+      <Button size="sm" variant="ghost" onClick={()=>archPay(x.id,true)} title="Arquivar">📦</Button>
+      <Button size="sm" variant="ghost" className="ml-auto text-rose-600"
+       onClick={()=>{if(confirm('Excluir "'+x.name+'"? O registro de pagamentos também será removido.'))delPay(x.id);}}>🗑</Button></div>
+    </Card>;})}</div>
+   {st.payments.filter(x=>x.archived).length>0&&<Card>
+    <p className="text-xs font-semibold uppercase text-muted">Arquivados</p>
+    <div className="mt-3 space-y-2">{st.payments.filter(x=>x.archived).map(x=>
+     <div key={x.id} className="flex items-center gap-3 rounded-xl border bg-surface2/50 p-2.5 text-sm">
+      <span>{x.icon}</span><span className="min-w-0 flex-1 truncate">{x.name}</span>
+      <span className="text-xs text-muted tabular-nums">{money(x.amount)}</span>
+      <Button size="xs" variant="ghost" onClick={()=>archPay(x.id,false)}>restaurar</Button>
+      <Button size="xs" variant="ghost" className="text-rose-600" onClick={()=>{if(confirm('Excluir definitivamente?'))delPay(x.id);}}>excluir</Button></div>)}</div></Card>}
+  </div>}
+
+  {ed&&<PayForm open={open} onClose={()=>setOpen(false)} initial={ed} onSave={savePay}/>}
+  {paying&&<PayModal occ={paying} onClose={()=>setPaying(null)}/>}
+ </div>;}
+
+function MyTasks(p){
+ const {st,saveTask,delTask,dupTask,archTask,togTask}=useApp();
+ const [open,setOpen]=useState(false),[ed,setEd]=useState(null),[quick,setQuick]=useState(null);
+ const [q,setQ]=useState(''),[cat,setCat]=useState('all'),[pr,setPr]=useState('all'),
+  [wd,setWd]=useState('all'),[view,setView]=useState('active');
+ const catOf=id=>st.categories.filter(c=>c.id===id)[0];
+ const novo=useCallback(()=>{setEd(blankTask(st.categories));setOpen(true);},[st.categories]);
+ useEffect(()=>{if(p.autoNew){novo();p.onAuto();}},[p.autoNew]);
+ const list=st.tasks.filter(t=>(view==='archived'?t.archived:!t.archived)&&
+  (!q||t.name.toLowerCase().indexOf(q.toLowerCase())>=0||(t.description||'').toLowerCase().indexOf(q.toLowerCase())>=0)&&
+  (cat==='all'||t.categoryId===cat)&&(pr==='all'||t.priority===pr)&&
+  (wd==='all'||runsOn(t.frequency,+wd)));
+ return <div className="space-y-5">
+  <div className="flex flex-wrap items-center gap-2">
+   <Input className="min-w-[170px] flex-1" placeholder="🔍 Pesquisar tarefas…" value={q} onChange={e=>setQ(e.target.value)}/>
+   <Select className="w-auto" value={wd} onChange={e=>setWd(e.target.value)}><option value="all">Qualquer dia</option>
+    {WDO.map(d=><option key={d} value={d}>{WD[d]}</option>)}</Select>
+   <Select className="w-auto" value={cat} onChange={e=>setCat(e.target.value)}><option value="all">Categorias</option>
+    {st.categories.map(c=><option key={c.id} value={c.id}>{c.icon+' '+c.name}</option>)}</Select>
+   <Select className="w-auto" value={pr} onChange={e=>setPr(e.target.value)}><option value="all">Prioridade</option>
+    {PRIOS.map(x=><option key={x.value} value={x.value}>{x.label}</option>)}</Select>
+   <Select className="w-auto" value={view} onChange={e=>setView(e.target.value)}>
+    <option value="active">Ativas</option><option value="archived">Arquivadas</option></Select>
+   <Button onClick={novo}>＋ Nova tarefa</Button></div>
+  {list.length===0&&<Empty icon="📋" title={view==='archived'?'Nada arquivado':'Nenhuma tarefa cadastrada'}
+   desc={view==='archived'?'Tarefas arquivadas ficam fora da lista de hoje.':'Crie uma rotina e escolha os dias em que ela deve aparecer.'}
+   action={view!=='archived'?<Button onClick={novo}>Criar tarefa</Button>:null}/>}
+  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{list.map(t=>{
+   const c=catOf(t.categoryId), pm=pMeta(t.priority), due=isTaskDue(t,new Date());
+   return <Card key={t.id} className="flex flex-col gap-3 p-4 hover:shadow-lift">
+    <div className="flex items-start gap-3">
+     <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-lg" style={{background:t.color+'22',color:t.color}}>{t.icon}</span>
+     <div className="min-w-0 flex-1"><p className={cx('truncate font-semibold',!t.active&&'text-muted line-through')}>{t.name}</p>
+      {t.description&&<p className="mt-0.5 line-clamp-2 text-xs text-muted">{t.description}</p>}</div>
+     {due&&t.active&&<Badge className="bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">Hoje</Badge>}</div>
+    <button onClick={()=>setQuick(t)} className="flex items-center gap-2 rounded-xl border bg-surface2/50 p-2 text-left hover:bg-surface2">
+     <WeekDots freq={t.frequency}/>
+     <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted">{freqLabel(t.frequency)}</span>
+     <span className="text-[11px] text-brand-600">alterar</span></button>
+    <div className="flex flex-wrap gap-1.5">
+     <Badge className="bg-surface2 text-muted">{c?c.icon+' '+c.name:'📌 Sem categoria'}</Badge>
+     <Badge className={pm.badge}><span className={cx('h-1.5 w-1.5 rounded-full',pm.dot)}/>{pm.label}</Badge>
+     {!t.active&&<Badge className="bg-slate-200 text-slate-600 dark:bg-slate-800">Inativa</Badge>}</div>
+    {t.notes&&<p className="rounded-xl bg-surface2 p-2 text-xs text-muted">📝 {t.notes}</p>}
+    <div className="mt-auto flex items-center gap-1 border-t pt-3">
+     <Button size="sm" variant="soft" onClick={()=>{setEd(JSON.parse(JSON.stringify(t)));setOpen(true);}}>Editar</Button>
+     <Button size="sm" variant="ghost" onClick={()=>dupTask(t.id)} title="Duplicar">⧉</Button>
+     <Button size="sm" variant="ghost" onClick={()=>togTask(t.id)} title="Ativar/Desativar">{t.active?'⏸':'▶'}</Button>
+     <Button size="sm" variant="ghost" onClick={()=>archTask(t.id,!t.archived)} title="Arquivar">{t.archived?'♻':'📦'}</Button>
+     <Button size="sm" variant="ghost" className="ml-auto text-rose-600"
+      onClick={()=>{if(confirm('Excluir "'+t.name+'"? O histórico registrado é preservado.'))delTask(t.id);}}>🗑</Button></div>
+   </Card>;})}</div>
+  {ed&&<TaskForm open={open} onClose={()=>setOpen(false)} initial={ed} onSave={saveTask}/>}
+  {quick&&<QuickDays task={quick} onClose={()=>setQuick(null)}/>}
+ </div>;}
+
+function History(){
+ const {days,agenda}=useApp(); const [sel,setSel]=useState(null);
+ const list=days.filter(d=>d.total>0).slice().reverse();
+ const tone=p=>p>=100?'bg-emerald-500':p>=75?'bg-brand-500':p>=40?'bg-amber-500':'bg-rose-500';
+ const paysOf=k=>agenda.filter(o=>o.effective===k&&!o.skipped);
+ if(!list.length)return <Empty icon="🗂️" title="Sem histórico ainda"
+  desc="Cada dia com tarefas previstas gera um registro automático, com o horário de cada conclusão."/>;
+ return <div><div className="space-y-2">{list.map(d=>{
+  const dt=parseKey(d.date), wknd=isWknd(dt), ps=paysOf(d.date);
+  return <button key={d.date} onClick={()=>setSel(d)}
+   className="flex w-full items-center gap-3 rounded-2xl border bg-surface p-4 text-left hover:-translate-y-px hover:shadow-lift">
+   <div className="w-20 shrink-0 sm:w-24"><p className="font-semibold tabular-nums">{short(d.date)}</p>
+    <p className={cx('truncate text-xs',wknd?'text-brand-500':'text-muted')}>{WDL[dt.getDay()].replace('-feira','')}</p></div>
+   <span className="w-14 shrink-0 text-sm font-semibold tabular-nums">{d.completed}/{d.total}</span>
+   <Progress value={d.percent} barClass={tone(d.percent)} className="flex-1"/>
+   {ps.length>0&&<Badge className="hidden shrink-0 bg-surface2 text-muted sm:inline-flex">💳 {ps.length}</Badge>}
+   <span className={cx('w-12 shrink-0 text-right font-bold tabular-nums',d.percent===100&&'text-emerald-600')}>{d.percent}%</span>
+   <span className="text-muted">›</span></button>;})}</div>
+  <Modal open={!!sel} onClose={()=>setSel(null)} wide
+   title={sel?WDL[parseKey(sel.date).getDay()]+', '+parseKey(sel.date).getDate()+' de '+MOL[parseKey(sel.date).getMonth()]:''}>
+   {sel&&<div>
+    <Card className="mb-4 flex items-center gap-3 p-4"><span className="text-2xl font-bold tabular-nums">{sel.percent}%</span>
+     <Progress value={sel.percent} barClass={tone(sel.percent)}/>
+     <span className="whitespace-nowrap text-sm text-muted tabular-nums">{sel.completed}/{sel.total}</span></Card>
+    <ul className="space-y-2">{sel.entries.slice().sort((a,b)=>(b.done-a.done)||((a.completedAt||'').localeCompare(b.completedAt||''))).map(e=>
+     <li key={e.taskId} className={cx('flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm',e.done?'bg-surface2/60':'bg-surface')}>
+      <span>{e.icon}</span><span className={cx('min-w-0 flex-1 truncate',e.done&&'text-muted line-through')}>{e.name}</span>
+      <span className="text-xs text-muted">{e.categoryIcon+' '+e.categoryName}</span>
+      {e.done&&e.completedAt?<span className="text-xs font-medium text-emerald-600">🕘 {hhmm(e.completedAt)}</span>
+       :<span className="text-xs font-medium text-rose-500">Não concluída</span>}</li>)}</ul>
+    {paysOf(sel.date).length>0&&<div><p className="mt-5 text-xs font-semibold uppercase text-muted">💳 Pagamentos deste dia</p>
+     <ul className="mt-2 space-y-2">{paysOf(sel.date).map(o=>
+      <li key={o.pid+o.key} className="flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm">
+       <span>{o.icon}</span><span className="min-w-0 flex-1 truncate">{o.name}</span>
+       {o.ant&&<span className="text-[11px] text-violet-600">↩ antecipado</span>}
+       <span className="font-semibold tabular-nums">{money(o.amount)}</span>
+       {o.paid?<span className="text-xs font-medium text-emerald-600">✔ pago</span>
+        :<span className="text-xs font-medium text-rose-500">pendente</span>}</li>)}</ul></div>}
+   </div>}</Modal></div>;}
+
+function Stats(){
+ const {st,days,report,agenda}=useApp();
+ const map=useMemo(()=>{const m={};days.forEach(d=>m[d.date]=d);return m;},[days]);
+ const monthly=useMemo(()=>{const a={};
+  days.filter(d=>d.total>0).forEach(d=>{const k=d.date.slice(0,7);a[k]=a[k]||{s:0,n:0};a[k].s+=d.percent;a[k].n++;});
+  return Object.keys(a).sort().slice(-12).map(k=>({label:MO[+k.slice(5,7)-1]+'/'+k.slice(2,4),value:Math.round(a[k].s/a[k].n)}));},[days]);
+ const d30=useMemo(()=>lastN(30).map(k=>({label:short(k),value:map[k]?map[k].percent:0})),[map]);
+ const byWd=useMemo(()=>{const a=Array.from({length:7},()=>({s:0,n:0}));
+  days.filter(d=>d.total>0).forEach(d=>{const w=parseKey(d.date).getDay();a[w].s+=d.percent;a[w].n++;});
+  return WDO.map(i=>({label:WD[i],value:a[i].n?Math.round(a[i].s/a[i].n):0}));},[days]);
+ const payMonths=useMemo(()=>{const a={};
+  agenda.filter(o=>!o.skipped).forEach(o=>{const k=o.effective.slice(0,7);a[k]=(a[k]||0)+o.amount;});
+  return Object.keys(a).sort().slice(-8).map(k=>({label:MO[+k.slice(5,7)-1]+'/'+k.slice(2,4),value:Math.round(a[k])}));},[agenda]);
+ const load=useMemo(()=>WDO.map(d=>({l:WD[d],
+  n:st.tasks.filter(t=>t.active&&!t.archived&&runsOn(t.frequency,d)).length})),[st.tasks]);
+ const mx=Math.max(1,...load.map(x=>x.n));
+ const anticipated=agenda.filter(o=>o.ant).length;
+ const payMax=Math.max(1,...payMonths.map(x=>x.value));
+
+ return <div className="space-y-5">
+  {!report.has&&<Empty icon="📈" title="Ainda não há dados de tarefas"
+   desc="Marque conclusões e as estatísticas, o calendário de intensidade e o índice de consistência passam a ser construídos."/>}
+  {report.has&&<div className="space-y-5">
+   <Consist r={report}/>
+   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <Stat icon="🔥" label="Maior sequência" value={report.longest+' dias'} hint={'Atual: '+report.cur}/>
+    <Stat icon="📅" label="Dias 100%" value={report.perfect} hint="Desde o início"/>
+    <Stat icon="🕘" label="Horário médio" value={fmtHour(report.avgHour)} hint="Conclusão das tarefas"/>
+    <Stat icon="🗓️" label="Percentual mensal" value={(monthly.length?monthly[monthly.length-1].value:0)+'%'} hint="Mês corrente"/></div>
+   <Card><h3 className="mb-3 text-sm font-semibold">Calendário de intensidade</h3><Heat days={days} weeks={26}/></Card>
+   <div className="grid gap-4 lg:grid-cols-2">
+    <Card><h3 className="mb-2 text-sm font-semibold">Taxa de conclusão por mês</h3><Bars data={monthly}/></Card>
+    <Card><h3 className="mb-2 text-sm font-semibold">Evolução — últimos 30 dias</h3><Line data={d30}/></Card>
+    <Card><h3 className="mb-2 text-sm font-semibold">Desempenho por dia da semana</h3><Bars data={byWd} color="#8b5cf6"/></Card>
+    <Card><h3 className="mb-3 text-sm font-semibold">Carga de rotinas por dia</h3>
+     <div className="space-y-2">{load.map(x=><div key={x.l} className="flex items-center gap-3 text-sm">
+      <span className="w-10 shrink-0 text-xs font-semibold uppercase text-muted">{x.l}</span>
+      <Progress value={x.n/mx*100} className="h-2.5"/>
+      <span className="w-6 text-right font-semibold tabular-nums">{x.n}</span></div>)}</div></Card></div>
+  </div>}
+  {payMonths.length>0&&<Card><h3 className="mb-1 text-sm font-semibold">Pagamentos previstos por mês</h3>
+   <p className="mb-2 text-xs text-muted">{anticipated} vencimento(s) na janela foram antecipados do fim de semana para sexta-feira.</p>
+   <Bars data={payMonths} color="#f59e0b" money max={payMax}/></Card>}
+ </div>;}
+
+function Settings(p){
+ const {st,setSet,saveCat,delCat,notify}=useApp(); const s=st.profile.settings;
+ const [cat,setCat]=useState(null);
+ return <div className="space-y-5">
+  <Card><h3 className="text-sm font-semibold">Aparência</h3>
+   <div className="mt-3 flex gap-2">{[['light','☀️ Claro'],['dark','🌙 Escuro'],['system','💻 Sistema']].map(a=>
+    <button key={a[0]} onClick={()=>{p.setTheme(a[0]);setSet({theme:a[0]});}}
+     className={cx('flex-1 rounded-xl border px-3 py-2.5 text-sm font-medium',
+      p.theme===a[0]?'border-brand-600 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300':'bg-surface hover:bg-surface2')}>{a[1]}</button>)}</div></Card>
+
+  <Card><h3 className="text-sm font-semibold">Categorias</h3>
+   <p className="mt-1 text-xs text-muted">Usadas por tarefas e pagamentos.</p>
+   <div className="mt-3 space-y-2">{st.categories.length===0&&<p className="rounded-xl bg-surface2 p-3 text-sm text-muted">Nenhuma categoria.</p>}
+    {st.categories.map(c=><div key={c.id} className="flex items-center gap-3 rounded-xl border bg-surface2/50 p-2.5">
+     <span className="grid h-9 w-9 place-items-center rounded-xl text-lg" style={{background:c.color+'22'}}>{c.icon}</span>
+     <span className="flex-1 truncate text-sm font-medium">{c.name}</span>
+     <span className="text-xs text-muted tabular-nums">
+      {st.tasks.filter(t=>t.categoryId===c.id&&!t.archived).length+(st.payments||[]).filter(x=>x.categoryId===c.id&&!x.archived).length} itens</span>
+     <Button size="sm" variant="ghost" onClick={()=>setCat(Object.assign({},c))}>✎</Button>
+     <Button size="sm" variant="ghost" className="text-rose-600"
+      onClick={()=>{if(confirm('Excluir "'+c.name+'"? Os itens ficarão sem categoria.'))delCat(c.id);}}>🗑</Button></div>)}</div>
+   <Button variant="outline" className="mt-3" onClick={()=>setCat({name:'',icon:'💼',color:COLORS[0]})}>＋ Nova categoria</Button></Card>
+
+  <Card><h3 className="text-sm font-semibold">Notificações</h3>
+   <p className="mt-1 text-xs text-muted">Lembretes locais, exibidos com o aplicativo aberto.</p>
+   <div className="mt-4 space-y-4">
+    <Switch checked={s.notifyPending} onChange={v=>setSet({notifyPending:v})} label="Lembrar tarefas pendentes"/>
+    <Switch checked={s.notifyPriority} onChange={v=>setSet({notifyPriority:v})} label="Lembrar tarefas prioritárias"/>
+    <Switch checked={s.notifyDailySummary} onChange={v=>setSet({notifyDailySummary:v})} label="Resumo do dia"/>
+    <Switch checked={s.notifyPayments} onChange={v=>setSet({notifyPayments:v})} label="Avisar pagamentos a vencer"/>
+    <div className="flex flex-wrap items-center gap-3">
+     <span className="text-xs font-semibold uppercase text-muted">Antecedência do aviso</span>
+     <Select className="w-32" value={s.payLead} onChange={e=>setSet({payLead:+e.target.value})}>
+      {[0,1,2,3,5,7].map(d=><option key={d} value={d}>{d===0?'no dia':d+' dia(s) antes'}</option>)}</Select></div>
+    <div className="flex flex-wrap items-center gap-3">
+     <span className="text-xs font-semibold uppercase text-muted">Horário do resumo</span>
+     <Select className="w-28" value={s.summaryHour} onChange={e=>setSet({summaryHour:+e.target.value})}>
+      {Array.from({length:24},(_,h)=><option key={h} value={h}>{pad(h)+':00'}</option>)}</Select></div>
+    <Button variant="outline" onClick={()=>{
+     if(!('Notification' in window))return notify('Este navegador não suporta notificações.');
+     Notification.requestPermission().then(r=>notify(r==='granted'?'🔔 Notificações autorizadas.':'Permissão negada.'));}}>
+     Autorizar notificações</Button></div></Card>
+
+  <Modal open={!!cat} onClose={()=>setCat(null)} title={cat&&cat.id?'Editar categoria':'Nova categoria'}>
+   {cat&&<form className="space-y-4" onSubmit={e=>{e.preventDefault();if(!cat.name.trim())return;
+     saveCat(Object.assign({},cat,{name:cat.name.trim()}));setCat(null);}}>
+    <div><Lab>Nome</Lab><Input autoFocus value={cat.name} onChange={e=>setCat(Object.assign({},cat,{name:e.target.value}))}/></div>
+    <div><Lab>Ícone</Lab><div className="flex flex-wrap gap-1.5">{CICONS.map(i=>
+     <button key={i} type="button" onClick={()=>setCat(Object.assign({},cat,{icon:i}))}
+      className={cx('h-9 w-9 rounded-xl text-base',cat.icon===i?'bg-brand-600 text-white':'bg-surface2')}>{i}</button>)}</div></div>
+    <div><Lab>Cor</Lab><div className="flex flex-wrap gap-2">{COLORS.map(c=>
+     <button key={c} type="button" onClick={()=>setCat(Object.assign({},cat,{color:c}))} style={{background:c}}
+      className={cx('h-8 w-8 rounded-xl',cat.color===c&&'ring-2 ring-brand-500 ring-offset-2 ring-offset-surface')}/>)}</div></div>
+    <div className="flex justify-end gap-2 border-t pt-4">
+     <Button type="button" variant="outline" onClick={()=>setCat(null)}>Cancelar</Button>
+     <Button type="submit" disabled={!cat.name.trim()}>Salvar</Button></div></form>}</Modal>
+ </div>;}
+
+/* ═══ 14. SHELL ═══ */
+const NAV=[{id:'dash',l:'Dashboard',i:'▦'},{id:'hoje',l:'Hoje',i:'✔',b:'t'},
+ {id:'tarefas',l:'Minhas Tarefas',i:'☰'},{id:'pagamentos',l:'Pagamentos',i:'💳',b:'p'},
+ {id:'historico',l:'Histórico',i:'⏱'},{id:'stats',l:'Estatísticas',i:'📈'},{id:'config',l:'Configurações',i:'⚙'}];
+
+function Banner(){const {today,report}=useApp();
+ const t=today?today.total:0,c=today?today.completed:0,p=today?today.percent:0;
+ return <div className="sticky top-0 z-30 border-b bg-bg/85 px-4 py-3 backdrop-blur-md md:px-8">
+  <div className="mx-auto flex max-w-6xl items-center gap-4">
+   <div className="min-w-0"><p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Hoje</p>
+    <p className="truncate text-sm font-semibold capitalize">{longDate()}</p></div>
+   <div className="hidden flex-1 items-center gap-3 sm:flex">
+    <span className="whitespace-nowrap text-sm font-semibold tabular-nums">{c}/{t} tarefas</span>
+    <Progress value={p} blocks className="max-w-xs"/>
+    <span className="w-10 text-sm font-bold tabular-nums text-brand-600">{p}%</span></div>
+   {report.cur>0&&<span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-xl bg-orange-100 px-2.5 py-1 text-sm font-bold text-orange-700 dark:bg-orange-950 dark:text-orange-300">🔥 {report.cur}</span>}</div>
+  <div className="mt-2 sm:hidden"><Progress value={p} className="h-1.5"/></div></div>;}
+
+function App(props){
+ const {st,today,report,pay,toast,setSet,logout}=useApp();
+ const u=props.user;
+ const [page,setPage]=useState('hoje'),[menu,setMenu]=useState(false);
+ const [newT,setNewT]=useState(false),[newP,setNewP]=useState(false);
+ const [theme,setTheme]=useState(st.profile.settings.theme);
+ const pending=today?today.total-today.completed:0;
+ const payAlert=pay.over.length+pay.today.length;
+
+ useEffect(()=>{const mq=window.matchMedia('(prefers-color-scheme: dark)');
+  const ap=()=>document.documentElement.classList.toggle('dark',theme==='dark'||(theme==='system'&&mq.matches));
+  ap();mq.addEventListener('change',ap);return()=>mq.removeEventListener('change',ap);},[theme]);
+
+ useEffect(()=>{const s=st.profile.settings;
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  const sent={};
+  const tick=()=>{const d=today,now=new Date(),stamp=dayKey()+'-'+now.getHours();
+   if(d&&d.total){const pend=d.entries.filter(e=>!e.done);
+    if(s.notifyPriority&&pend.some(e=>e.priority==='high')&&!sent['p'+stamp]){sent['p'+stamp]=1;
+     new Notification('Tarefas prioritárias pendentes',{body:pend.filter(e=>e.priority==='high').map(e=>e.name).slice(0,3).join(', ')});}
+    else if(s.notifyPending&&pend.length&&!sent['n'+stamp]){sent['n'+stamp]=1;
+     new Notification(pend.length+' tarefa(s) pendente(s)',{body:'Progresso: '+d.percent+'%'});}
+    if(s.notifyDailySummary&&now.getHours()===s.summaryHour&&!sent['s'+dayKey()]){sent['s'+dayKey()]=1;
+     new Notification('Resumo do dia',{body:d.completed+'/'+d.total+' concluídas · '+d.percent+'% · 🔥 '+report.cur});}}
+   if(s.notifyPayments){const lim=dayKey(addDays(new Date(),s.payLead||0));
+    const due=pay.over.concat(pay.today,pay.n7).filter(o=>o.effective<=lim);
+    if(due.length&&!sent['y'+stamp]){sent['y'+stamp]=1;
+     new Notification(due.length+' pagamento(s) a vencer',
+      {body:due.slice(0,3).map(o=>o.name+' · '+short(o.effective)+' · '+money(o.amount)).join('\n')});}}};
+  const id=setInterval(tick,5*60*1000);tick();return()=>clearInterval(id);
+ },[st.profile.settings,today,report.cur,pay]);
+
+ const go=x=>{setPage(x);setMenu(false);window.scrollTo({top:0});};
+ const onTask=()=>{setNewT(true);go('tarefas');};
+ const onPay=()=>{setNewP(true);go('pagamentos');};
+ const title=(NAV.filter(n=>n.id===page)[0]||{}).l;
+
+ return <div className="min-h-screen lg:flex">
+  {menu&&<div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={()=>setMenu(false)}/>}
+  <aside className={cx('fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r bg-surface p-4 transition-transform lg:static lg:z-0 lg:translate-x-0',
+   menu?'translate-x-0':'-translate-x-full')}>
+   <div className="mb-6 flex items-center justify-between px-1">
+    <span className="flex items-center gap-2 font-bold tracking-tight">
+     <span className="grid h-8 w-8 place-items-center rounded-xl bg-brand-600 text-white">🔁</span>RotinaFlow</span>
+    <Button variant="ghost" size="icon" className="lg:hidden" onClick={()=>setMenu(false)}>✕</Button></div>
+   <nav className="space-y-1">{NAV.map(n=>{
+    const badge=n.b==='t'?pending:n.b==='p'?payAlert:0;
+    return <button key={n.id} onClick={()=>go(n.id)}
+     className={cx('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors',
+      page===n.id?'bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300':'text-muted hover:bg-surface2 hover:text-fg')}>
+     <span className="w-4 text-center">{n.i}</span>{n.l}
+     {badge>0&&<span className={cx('ml-auto rounded-lg px-1.5 py-0.5 text-[11px] font-bold text-white tabular-nums',
+      n.b==='p'&&pay.over.length?'bg-rose-600':'bg-brand-600')}>{badge}</span>}</button>;})}</nav>
+   <div className="mt-auto space-y-2">
+    <div className="rounded-2xl bg-surface2 p-3"><p className="text-xs text-muted">Índice de consistência</p>
+     <p className="text-2xl font-bold tabular-nums">{report.has?report.index:'—'}
+      {report.has&&<span className="text-sm text-muted">/100</span>}</p>
+     <Progress value={report.index} className="mt-1.5 h-1.5" barClass={band(report.index).b}/></div>
+    <div className="flex items-center gap-2 rounded-2xl bg-surface2 p-3 text-xs">
+     <span className="grid h-8 w-8 place-items-center rounded-xl bg-violet-500/20 text-violet-600">⭐</span>
+     <div><p className="font-semibold">Nível {levelFromXp(st.profile.xp).level}</p>
+      <p className="text-muted tabular-nums">{st.profile.xp} XP</p></div></div>
+    <div className="rounded-2xl border p-3 text-xs">
+     <p className="truncate font-semibold" title={u&&u.email?u.email:'Sessão anônima'}>
+      {u&&u.email?u.email:'👤 Sessão anônima'}</p>
+     <p className="mt-0.5 text-muted">Sincronizado com Firebase</p>
+     <Button size="sm" variant="outline" className="mt-2 w-full" onClick={logout}>Sair</Button></div></div></aside>
+
+  <div className="flex min-w-0 flex-1 flex-col">
+   <Banner/>
+   <header className="flex items-center gap-3 px-4 pt-5 md:px-8">
+    <Button variant="outline" size="icon" className="lg:hidden" onClick={()=>setMenu(true)}>☰</Button>
+    <h1 className="text-xl font-bold tracking-tight">{title}</h1>
+    <div className="ml-auto flex items-center gap-2"><SyncBadge/>
+     <Button variant="ghost" size="icon"
+      onClick={()=>{const t=document.documentElement.classList.contains('dark')?'light':'dark';setTheme(t);setSet({theme:t});}}>🌓</Button>
+    </div></header>
+   <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 md:px-8">
+    {page==='dash'&&<Dashboard go={go} onTask={onTask} onPay={onPay}/>}
+    {page==='hoje'&&<Today go={go} onTask={onTask} onPay={onPay}/>}
+    {page==='tarefas'&&<MyTasks autoNew={newT} onAuto={()=>setNewT(false)}/>}
+    {page==='pagamentos'&&<Payments autoNew={newP} onAuto={()=>setNewP(false)}/>}
+    {page==='historico'&&<History/>}
+    {page==='stats'&&<Stats/>}
+    {page==='config'&&<Settings theme={theme} setTheme={setTheme}/>}</main>
+   <footer className="border-t px-4 py-4 text-center text-xs text-muted md:px-8">
+    RotinaFlow · dados sincronizados na nuvem</footer></div>
+
+  {toast&&<div className="fixed bottom-4 left-1/2 z-[60] -translate-x-1/2 animate-popIn rounded-2xl border bg-surface px-4 py-3 text-sm font-medium shadow-lift">{toast}</div>}
+ </div>;}
+
+/* ═══ 15. AUTENTICAÇÃO ═══ */
+const SYNC={idle:['⋯','Aguardando','text-muted'],syncing:['⟳','Sincronizando','text-brand-600'],
+ saved:['☁️','Salvo na nuvem','text-emerald-600'],offline:['⚠','Offline · envio pendente','text-amber-600'],
+ error:['⚠','Erro de sincronização','text-rose-600']};
+function SyncBadge(){const {sync}=useApp(); const s=SYNC[sync]||SYNC.idle;
+ return <span className={cx('hidden items-center gap-1 text-xs font-medium sm:inline-flex',s[2])} title={s[1]}>{s[0]} {s[1]}</span>;}
+
+const AUTH_ERR={'auth/invalid-email':'E-mail inválido.','auth/user-not-found':'Usuário não encontrado.',
+ 'auth/wrong-password':'Senha incorreta.','auth/invalid-credential':'E-mail ou senha incorretos.',
+ 'auth/email-already-in-use':'Este e-mail já está cadastrado.',
+ 'auth/weak-password':'A senha precisa ter ao menos 6 caracteres.',
+ 'auth/too-many-requests':'Muitas tentativas. Aguarde alguns minutos.',
+ 'auth/network-request-failed':'Falha de rede. Verifique a conexão.',
+ 'auth/operation-not-allowed':'Método de login desativado no Console Firebase.'};
+const authMsg=e=>AUTH_ERR[e&&e.code]||('Não foi possível concluir: '+((e&&e.message)||'erro desconhecido'));
+
+function AuthScreen(){
+ const [mode,setMode]=useState('login');
+ const [email,setEmail]=useState(''),[pass,setPass]=useState('');
+ const [busy,setBusy]=useState(false),[err,setErr]=useState(''),[msg,setMsg]=useState('');
+ const run=p=>{setBusy(true);setErr('');setMsg('');p.catch(e=>setErr(authMsg(e))).then(()=>setBusy(false));};
+ const submit=e=>{e.preventDefault();
+  run(mode==='login'?window.fbAuth.signInWithEmailAndPassword(email.trim(),pass)
+   :window.fbAuth.createUserWithEmailAndPassword(email.trim(),pass));};
+ const reset=()=>{if(!email.trim())return setErr('Informe o e-mail para redefinir a senha.');
+  run(window.fbAuth.sendPasswordResetEmail(email.trim()).then(()=>setMsg('E-mail de redefinição enviado.')));};
+ return <div className="grid min-h-screen place-items-center p-4">
+  <Card className="w-full max-w-md">
+   <div className="flex items-center gap-2 font-bold tracking-tight">
+    <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white">🔁</span>RotinaFlow</div>
+   <p className="mt-3 text-sm text-muted">Entre para sincronizar suas rotinas e pagamentos na nuvem.</p>
+   <div className="mt-4 flex rounded-xl bg-surface2 p-1">
+    {[['login','Entrar'],['signup','Criar conta']].map(a=>
+     <button key={a[0]} onClick={()=>{setMode(a[0]);setErr('');setMsg('');}}
+      className={cx('flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold',mode===a[0]?'bg-surface shadow-soft':'text-muted')}>{a[1]}</button>)}</div>
+   <form className="mt-4 space-y-3" onSubmit={submit}>
+    <div><Lab>E-mail</Lab><Input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)}/></div>
+    <div><Lab>Senha</Lab><Input type="password" autoComplete={mode==='login'?'current-password':'new-password'}
+     value={pass} onChange={e=>setPass(e.target.value)}/></div>
+    {err&&<p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">{err}</p>}
+    {msg&&<p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{msg}</p>}
+    <Button type="submit" size="lg" className="w-full" disabled={busy||!email.trim()||pass.length<6}>
+     {busy?'Aguarde…':mode==='login'?'Entrar':'Criar conta'}</Button></form>
+   <div className="mt-3 flex items-center justify-between text-xs">
+    <button className="text-muted hover:text-fg" onClick={reset}>Esqueci minha senha</button>
+    <button className="text-brand-600 hover:underline" disabled={busy}
+     onClick={()=>run(window.fbAuth.signInAnonymously())}>Continuar sem conta →</button></div>
+   <p className="mt-4 text-[11px] text-muted">Sessão anônima fica vinculada a este navegador. Crie uma conta para acessar de outros dispositivos.</p>
+  </Card></div>;}
+
+function Root(){
+ const [user,setUser]=useState(undefined);
+ useEffect(()=>window.fbAuth.onAuthStateChanged(u=>setUser(u||null)),[]);
+ useEffect(()=>{const mq=window.matchMedia('(prefers-color-scheme: dark)');
+  const ap=()=>{if(!user)document.documentElement.classList.toggle('dark',mq.matches);};
+  ap();mq.addEventListener('change',ap);return()=>mq.removeEventListener('change',ap);},[user]);
+ if(user===undefined)return <div className="grid min-h-screen place-items-center text-sm text-muted">Carregando…</div>;
+ if(!user)return <AuthScreen/>;
+ return <Provider uid={user.uid}><App user={user}/></Provider>;}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Root/>);
+</script>
+</body>
+</html>
